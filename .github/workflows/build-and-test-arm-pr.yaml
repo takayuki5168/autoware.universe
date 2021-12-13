@@ -2,19 +2,49 @@ name: build-and-test-arm-pr
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - labeled
   workflow_dispatch:
 
 jobs:
+  check-run-condition:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check-run-condition.outputs.run }}
+    steps:
+      - name: Check run condition
+        id: check-run-condition
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Labeled now
+            if [ "${{ github.event.label.name == 'ARM64' }}" = "true" ]; then
+              RUN=true
+            fi
+
+            # Labeled before and synchronized
+            if [ "${{ github.event.label.name }}" = "" ]; then
+              if [ "${{ contains(github.event.pull_request.labels.*.name, 'ARM64') }}" = "true" ]; then
+                RUN=true
+              fi
+            fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN=true
+          fi
+
+          if [ "$RUN" != "true" ]; then
+            echo "Please add a proper label to run this workflow."
+          fi
+
+          echo ::set-output name=run::"$RUN"
+
   build-and-test-arm:
+    needs: check-run-condition
+    if: ${{ needs.check-run-condition.outputs.run == 'true' }}
     runs-on: [self-hosted, linux, ARM64]
     container: ros:galactic
     steps:
-      - name: Check label
-        if: ${{ github.event.pull_request && !contains(github.event.pull_request.labels.*.name, 'ARM64') }}
-        run: |
-          echo "Please add a proper label to run this workflow."
-          exit 1
-
       - name: Checkout repository
         uses: actions/checkout@v2
         with:
