@@ -29,6 +29,8 @@ namespace interpolation
 // NOTE: X(s) = a_i (s - s_i)^3 + b_i (s - s_i)^2 + c_i (s - s_i) + d_i : (i = 0, 1, ... N-1)
 struct MultiSplineCoef
 {
+  MultiSplineCoef() = default;
+
   explicit MultiSplineCoef(const size_t num_spline)
   {
     a.resize(num_spline);
