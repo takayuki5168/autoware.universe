@@ -15,14 +15,15 @@
 #define OBSTACLE_AVOIDANCE_PLANNER__PROCESS_CV_HPP_
 
 #include "obstacle_avoidance_planner/eb_path_optimizer.hpp"
+#include "opencv2/core.hpp"
+#include "opencv2/imgproc/imgproc_c.h"
+#include "opencv2/opencv.hpp"
 
-#include <opencv2/core.hpp>
+#include "autoware_auto_perception_msgs/msg/predicted_object.hpp"
+#include "autoware_auto_planning_msgs/msg/path.hpp"
+#include "geometry_msgs/msg/point32.hpp"
 
-#include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
-#include <autoware_auto_planning_msgs/msg/path.hpp>
-#include <geometry_msgs/msg/point32.hpp>
-
-#include <boost/optional/optional_fwd.hpp>
+#include "boost/optional/optional_fwd.hpp"
 
 #include <vector>
 
@@ -30,15 +31,6 @@ namespace util
 {
 struct Footprint;
 }
-
-struct CVMaps
-{
-  cv::Mat drivable_area;
-  cv::Mat clearance_map;
-  cv::Mat only_objects_clearance_map;
-  cv::Mat area_with_objects_map;
-  nav_msgs::msg::MapMetaData map_info;
-};
 
 struct Edges
 {
@@ -66,9 +58,13 @@ void putOccupancyGridValue(
 cv::Mat drawObstaclesOnImage(
   const bool enable_avoidance,
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const nav_msgs::msg::MapMetaData & map_info, const cv::Mat & clearance_map,
-  const TrajectoryParam & traj_param,
+  const nav_msgs::msg::MapMetaData & map_info, const cv::Mat & drivable_area,
+  const cv::Mat & clearance_map, const TrajectoryParam & traj_param,
   std::vector<autoware_auto_perception_msgs::msg::PredictedObject> * debug_avoiding_objects);
+
+PolygonPoints getPolygonPoints(
+  const std::vector<geometry_msgs::msg::Point> & points,
+  const nav_msgs::msg::MapMetaData & map_info);
 
 PolygonPoints getPolygonPoints(
   const autoware_auto_perception_msgs::msg::PredictedObject & object,
@@ -131,14 +127,20 @@ boost::optional<double> getDistance(
   const cv::Mat & clearance_map, const geometry_msgs::msg::Point & map_point,
   const nav_msgs::msg::MapMetaData & map_info);
 
-boost::optional<int> getStopIdx(
-  const std::vector<util::Footprint> & vehicle_footprints,
+boost::optional<int> getStopIdxFromFootprint(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
+  const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param);
+
+boost::optional<int> getStopIdxFromCircles(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius,
   const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
   const nav_msgs::msg::MapMetaData & map_info);
 
 CVMaps getMaps(
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const TrajectoryParam & traj_param, DebugData * debug_data);
+  const TrajectoryParam & traj_param, DebugData & debug_data, const bool is_showing_debug_info);
 }  // namespace process_cv
 #endif  // OBSTACLE_AVOIDANCE_PLANNER__PROCESS_CV_HPP_

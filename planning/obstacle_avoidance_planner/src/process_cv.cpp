@@ -15,21 +15,41 @@
 
 #include "obstacle_avoidance_planner/eb_path_optimizer.hpp"
 #include "obstacle_avoidance_planner/util.hpp"
+#include "tf2/utils.h"
+#include "tier4_autoware_utils/system/stop_watch.hpp"
 
-#include <opencv2/core.hpp>
-#include <opencv2/opencv.hpp>
+#include "autoware_auto_perception_msgs/msg/predicted_object.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 
-#include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
-#include <nav_msgs/msg/occupancy_grid.hpp>
-
-#include <boost/optional.hpp>
-
-#include <opencv2/imgproc/imgproc_c.h>
-#include <tf2/utils.h>
+#include "boost/optional.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <vector>
+
+namespace
+{
+cv::Point toCVPoint(const geometry_msgs::msg::Point & p)
+{
+  cv::Point cv_point;
+  cv_point.x = p.x;
+  cv_point.y = p.y;
+  return cv_point;
+}
+}  // namespace
+
+namespace tier4_autoware_utils
+{
+template <>
+geometry_msgs::msg::Point getPoint(const cv::Point & p)
+{
+  geometry_msgs::msg::Point geom_p;
+  geom_p.x = p.x;
+  geom_p.y = p.y;
+
+  return geom_p;
+}
+}  // namespace tier4_autoware_utils
 
 namespace process_cv
 {
@@ -53,49 +73,6 @@ void putOccupancyGridValue(
   og.data[i_flip + j_flip * og.info.width] = value;
 }
 
-cv::Mat drawObstaclesOnImage(
-  const bool enable_avoidance,
-  const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-  const nav_msgs::msg::MapMetaData & map_info, const cv::Mat & clearance_map,
-  const TrajectoryParam & traj_param,
-  std::vector<autoware_auto_perception_msgs::msg::PredictedObject> * debug_avoiding_objects)
-{
-  std::vector<autoware_auto_planning_msgs::msg::PathPoint> path_points_inside_area;
-  for (const auto & point : path_points) {
-    std::vector<geometry_msgs::msg::Point> points;
-    geometry_msgs::msg::Point image_point;
-    if (!util::transformMapToImage(point.pose.position, map_info, image_point)) {
-      continue;
-    }
-    const float clearance =
-      clearance_map.ptr<float>(static_cast<int>(image_point.y))[static_cast<int>(image_point.x)];
-    if (clearance < 1e-5) {
-      continue;
-    }
-    path_points_inside_area.push_back(point);
-  }
-  cv::Mat objects_image = cv::Mat::ones(clearance_map.rows, clearance_map.cols, CV_8UC1) * 255;
-  if (!enable_avoidance) {
-    return objects_image;
-  }
-
-  std::vector<std::vector<cv::Point>> cv_polygons;
-  for (const auto & object : objects) {
-    const PolygonPoints polygon_points = getPolygonPoints(object, map_info);
-    if (isAvoidingObject(
-          polygon_points, object, clearance_map, map_info, path_points_inside_area, traj_param)) {
-      cv_polygons.push_back(
-        getCVPolygon(object, polygon_points, path_points_inside_area, clearance_map, map_info));
-      debug_avoiding_objects->push_back(object);
-    }
-  }
-  for (const auto & polygon : cv_polygons) {
-    cv::fillConvexPoly(objects_image, polygon, cv::Scalar(0));
-  }
-  return objects_image;
-}
-
 bool isAvoidingObject(
   const PolygonPoints & polygon_points,
   const autoware_auto_perception_msgs::msg::PredictedObject & object, const cv::Mat & clearance_map,
@@ -115,8 +92,8 @@ bool isAvoidingObject(
     return false;
   }
 
-  const int nearest_idx =
-    util::getNearestIdx(path_points, object.kinematics.initial_pose_with_covariance.pose.position);
+  const int nearest_idx = tier4_autoware_utils::findNearestIndex(
+    path_points, object.kinematics.initial_pose_with_covariance.pose.position);
   const auto nearest_path_point = path_points[nearest_idx];
   const auto rel_p = util::transformToRelativeCoordinate2D(
     object.kinematics.initial_pose_with_covariance.pose.position, nearest_path_point.pose);
@@ -125,13 +102,16 @@ bool isAvoidingObject(
     return false;
   }
 
+  /*
   const float object_clearance_from_road =
     clearance_map.ptr<float>(
       static_cast<int>(image_point.get().y))[static_cast<int>(image_point.get().x)] *
     map_info.resolution;
+    */
   const geometry_msgs::msg::Vector3 twist =
     object.kinematics.initial_twist_with_covariance.twist.linear;
   const double vel = std::sqrt(twist.x * twist.x + twist.y * twist.y + twist.z * twist.z);
+  /*
   const auto nearest_path_point_image =
     util::transformMapToOptionalImage(nearest_path_point.pose.position, map_info);
   if (!nearest_path_point_image) {
@@ -141,9 +121,13 @@ bool isAvoidingObject(
     clearance_map.ptr<float>(static_cast<int>(
       nearest_path_point_image.get().y))[static_cast<int>(nearest_path_point_image.get().x)] *
     map_info.resolution;
+  */
+  const double lateral_offset_to_path = tier4_autoware_utils::calcLateralOffset(
+    path_points, object.kinematics.initial_pose_with_covariance.pose.position);
   if (
-    nearest_path_point_clearance - traj_param.center_line_width * 0.5 <
-      object_clearance_from_road ||
+    // nearest_path_point_clearance - traj_param.center_line_width * 0.5 <
+    // object_clearance_from_road ||
+    std::abs(lateral_offset_to_path) < traj_param.center_line_width * 0.5 ||
     vel > traj_param.max_avoiding_objects_velocity_ms ||
     !arePointsInsideDriveableArea(polygon_points.points_in_image, clearance_map)) {
     return false;
@@ -175,6 +159,137 @@ bool isAvoidingObjectType(
   return false;
 }
 
+cv::Mat drawObstaclesOnImage(
+  const bool enable_avoidance,
+  const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
+  const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
+  const nav_msgs::msg::MapMetaData & map_info, [[maybe_unused]] const cv::Mat & drivable_area,
+  const cv::Mat & clearance_map, const TrajectoryParam & traj_param,
+  std::vector<autoware_auto_perception_msgs::msg::PredictedObject> * debug_avoiding_objects)
+{
+  std::vector<autoware_auto_planning_msgs::msg::PathPoint> path_points_inside_area;
+  for (const auto & point : path_points) {
+    std::vector<geometry_msgs::msg::Point> points;
+    geometry_msgs::msg::Point image_point;
+    if (!util::transformMapToImage(point.pose.position, map_info, image_point)) {
+      continue;
+    }
+    const float clearance =
+      clearance_map.ptr<float>(static_cast<int>(image_point.y))[static_cast<int>(image_point.x)];
+    if (clearance < 1e-5) {
+      continue;
+    }
+    path_points_inside_area.push_back(point);
+  }
+  // cv::Mat objects_image = cv::Mat::ones(clearance_map.rows, clearance_map.cols, CV_8UC1) * 255;
+  cv::Mat objects_image;
+  const int dilate_size = static_cast<int>(
+    (1.7 + 1.0) / (std::sqrt(2) * 0.1));  // TODO(murooka) use clearance_from_object
+  cv::dilate(drivable_area, objects_image, cv::Mat(), cv::Point(-1, -1), dilate_size);
+  // TODO(murooka) tune 5 or cv::Mat()
+
+  if (!enable_avoidance) {
+    return objects_image;
+  }
+
+  // fill object
+  std::vector<std::vector<cv::Point>> cv_polygons;
+  std::vector<std::array<double, 2>> obj_cog_info;
+  std::vector<geometry_msgs::msg::Point> obj_positions;
+  for (const auto & object : objects) {
+    const PolygonPoints polygon_points = getPolygonPoints(object, map_info);
+    if (isAvoidingObject(
+          polygon_points, object, clearance_map, map_info, path_points_inside_area, traj_param)) {
+      const double lon_dist_to_path = tier4_autoware_utils::calcSignedArcLength(
+        path_points, 0, object.kinematics.initial_pose_with_covariance.pose.position);
+      const double lat_dist_to_path = tier4_autoware_utils::calcLateralOffset(
+        path_points, object.kinematics.initial_pose_with_covariance.pose.position);
+      obj_cog_info.push_back({lon_dist_to_path, lat_dist_to_path});
+      obj_positions.push_back(object.kinematics.initial_pose_with_covariance.pose.position);
+
+      cv_polygons.push_back(
+        getCVPolygon(object, polygon_points, path_points_inside_area, clearance_map, map_info));
+      debug_avoiding_objects->push_back(object);
+    }
+  }
+  for (const auto & polygon : cv_polygons) {
+    cv::fillConvexPoly(objects_image, polygon, cv::Scalar(0));
+  }
+
+  // fill between objects in the same side
+  const auto get_closest_obj_point = [&](size_t idx) {
+    const auto & path_point =
+      path_points.at(tier4_autoware_utils::findNearestIndex(path_points, obj_positions.at(idx)));
+    double min_dist = std::numeric_limits<double>::min();
+    size_t min_idx = 0;
+    for (size_t p_idx = 0; p_idx < cv_polygons.at(idx).size(); ++p_idx) {
+      const double dist =
+        tier4_autoware_utils::calcDistance2d(cv_polygons.at(idx).at(p_idx), path_point);
+      if (dist < min_dist) {
+        min_dist = dist;
+        min_idx = p_idx;
+      }
+    }
+
+    geometry_msgs::msg::Point geom_point;
+    geom_point.x = cv_polygons.at(idx).at(min_idx).x;
+    geom_point.y = cv_polygons.at(idx).at(min_idx).y;
+    return geom_point;
+  };
+
+  std::vector<std::vector<cv::Point>> cv_between_polygons;
+  for (size_t i = 0; i < obj_positions.size(); ++i) {
+    for (size_t j = i + 1; j < obj_positions.size(); ++j) {
+      const auto & obj_info1 = obj_cog_info.at(i);
+      const auto & obj_info2 = obj_cog_info.at(j);
+
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("lat"), obj_info1.at(1) << " " << obj_info2.at(1));
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("lon"), obj_info1.at(0) << " " << obj_info2.at(0));
+
+      if (
+        obj_info1.at(1) * obj_info2.at(1) < 0 ||
+        std::abs(obj_info1.at(0) - obj_info2.at(0)) > 30.0) {  // TODO(murooka) use ros param
+        continue;
+      }
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("cv"), "po");
+
+      std::vector<cv::Point> cv_points;
+      cv_points.push_back(toCVPoint(obj_positions.at(i)));
+      cv_points.push_back(toCVPoint(get_closest_obj_point(i)));
+      cv_points.push_back(toCVPoint(get_closest_obj_point(j)));
+      cv_points.push_back(toCVPoint(obj_positions.at(j)));
+
+      cv_between_polygons.push_back(cv_points);
+    }
+  }
+  /*
+  for (const auto & polygon : cv_between_polygons) {
+    cv::fillConvexPoly(objects_image, polygon, cv::Scalar(0));
+  }
+  */
+
+  return objects_image;
+}
+
+PolygonPoints getPolygonPoints(
+  const std::vector<geometry_msgs::msg::Point> & points,
+  const nav_msgs::msg::MapMetaData & map_info)
+{
+  std::vector<geometry_msgs::msg::Point> points_in_image;
+  std::vector<geometry_msgs::msg::Point> points_in_map;
+  for (const auto & point : points) {
+    const auto image_point = util::transformMapToOptionalImage(point, map_info);
+    if (image_point) {
+      points_in_image.push_back(image_point.get());
+      points_in_map.push_back(point);
+    }
+  }
+  PolygonPoints polygon_points;
+  polygon_points.points_in_image = points_in_image;
+  polygon_points.points_in_map = points_in_map;
+  return polygon_points;
+}
+
 PolygonPoints getPolygonPoints(
   const autoware_auto_perception_msgs::msg::PredictedObject & object,
   const nav_msgs::msg::MapMetaData & map_info)
@@ -203,7 +318,7 @@ PolygonPoints getPolygonPointsFromBB(
   const std::vector<double> rel_x = {0.5 * dim_x, 0.5 * dim_x, -0.5 * dim_x, -0.5 * dim_x};
   const std::vector<double> rel_y = {0.5 * dim_y, -0.5 * dim_y, -0.5 * dim_y, 0.5 * dim_y};
   const geometry_msgs::msg::Pose object_pose = object.kinematics.initial_pose_with_covariance.pose;
-  for (std::size_t i = 0; i < rel_x.size(); i++) {
+  for (size_t i = 0; i < rel_x.size(); i++) {
     geometry_msgs::msg::Point rel_point;
     rel_point.x = rel_x[i];
     rel_point.y = rel_y[i];
@@ -288,8 +403,8 @@ std::vector<cv::Point> getCVPolygon(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const cv::Mat & clearance_map, const nav_msgs::msg::MapMetaData & map_info)
 {
-  const int nearest_idx =
-    util::getNearestIdx(path_points, object.kinematics.initial_pose_with_covariance.pose.position);
+  const int nearest_idx = tier4_autoware_utils::findNearestIndex(
+    path_points, object.kinematics.initial_pose_with_covariance.pose.position);
   const auto nearest_path_point = path_points[nearest_idx];
   if (path_points.empty()) {
     return getDefaultCVPolygon(polygon_points.points_in_image);
@@ -324,7 +439,8 @@ std::vector<cv::Point> getExtendedCVPolygon(
   }
   const Edges edges = optional_edges.get();
 
-  const int nearest_polygon_idx = util::getNearestIdx(points_in_image, edges.origin);
+  const int nearest_polygon_idx =
+    tier4_autoware_utils::findNearestIndex(points_in_image, edges.origin);
   std::vector<cv::Point> cv_polygon;
   if (edges.back_idx == nearest_polygon_idx || edges.front_idx == nearest_polygon_idx) {
     // make polygon only with edges and extended edges
@@ -344,7 +460,7 @@ std::vector<cv::Point> getExtendedCVPolygon(
       }
       // back_idx -> vector_back -> vector_front -> nearest_idx -> front_idx
     } else {
-      for (std::size_t i = edges.back_idx + 1; i < points_in_image.size(); i++) {
+      for (size_t i = edges.back_idx + 1; i < points_in_image.size(); i++) {
         cv_polygon.push_back(cv::Point(points_in_image[i].x, points_in_image[i].y));
       }
       for (int i = 0; i < edges.front_idx; i++) {
@@ -360,7 +476,7 @@ std::vector<cv::Point> getExtendedCVPolygon(
       // back_idx -> vector_back -> vector_front -> nearest_idx -> front_idx
     } else {
       if (edges.back_idx >= edges.front_idx && nearest_polygon_idx < edges.front_idx) {
-        for (std::size_t i = edges.back_idx + 1; i < points_in_image.size(); i++) {
+        for (size_t i = edges.back_idx + 1; i < points_in_image.size(); i++) {
           cv_polygon.push_back(cv::Point(points_in_image[i].x, points_in_image[i].y));
         }
         for (int i = 0; i < edges.front_idx; i++) {
@@ -427,7 +543,7 @@ boost::optional<Edges> getEdges(
   const Eigen::Vector2d path_point_vec(dx1, dy1);
   const double path_point_vec_norm = path_point_vec.norm();
   Edges edges;
-  for (std::size_t i = 0; i < points_in_image.size(); i++) {
+  for (size_t i = 0; i < points_in_image.size(); i++) {
     const double dx2 = points_in_map[i].x - ray_origin.x;
     const double dy2 = points_in_map[i].y - ray_origin.y;
     const Eigen::Vector2d path_point2point(dx2, dy2);
@@ -514,23 +630,71 @@ cv::Mat getAreaWithObjects(const cv::Mat & drivable_area, const cv::Mat & object
   return area_with_objects;
 }
 
-boost::optional<int> getStopIdx(
-  const std::vector<util::Footprint> & footprints, const geometry_msgs::msg::Pose & ego_pose,
-  const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info)
+boost::optional<int> getStopIdxFromFootprint(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
+  const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param)
 {
-  const int nearest_idx = util::getNearestPointIdx(footprints, ego_pose.position);
-  for (std::size_t i = nearest_idx; i < footprints.size(); i++) {
-    const auto top_left = getDistance(road_clearance_map, footprints[i].top_left, map_info);
-    const auto top_right = getDistance(road_clearance_map, footprints[i].top_right, map_info);
-    const auto bottom_right = getDistance(road_clearance_map, footprints[i].bottom_right, map_info);
-    const auto bottom_left = getDistance(road_clearance_map, footprints[i].bottom_left, map_info);
-    const double epsilon = 1e-8;
-    if (!top_left || !top_right || !bottom_left || !bottom_right) {
+  const double half_width = vehicle_param.width / 2.0;
+  const double base_to_front = vehicle_param.length - vehicle_param.rear_overhang;
+  const double base_to_rear = vehicle_param.rear_overhang;
+
+  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj_points, ego_pose.position);
+  for (size_t i = nearest_idx; i < traj_points.size(); ++i) {
+    const auto & traj_point = traj_points.at(i);
+
+    const auto top_left_pos =
+      tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, -half_width, 0.0)
+        .position;
+    const auto top_right_pos =
+      tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, half_width, 0.0)
+        .position;
+    const auto bottom_right_pos =
+      tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, half_width, 0.0)
+        .position;
+    const auto bottom_left_pos =
+      tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, -half_width, 0.0)
+        .position;
+
+    const auto top_left_clearance = getDistance(road_clearance_map, top_left_pos, map_info);
+    const auto top_right_clearance = getDistance(road_clearance_map, top_right_pos, map_info);
+    const auto bottom_right_clearance = getDistance(road_clearance_map, bottom_right_pos, map_info);
+    const auto bottom_left_clearance = getDistance(road_clearance_map, bottom_left_pos, map_info);
+
+    constexpr double epsilon = 1e-8;
+    if (
+      !top_left_clearance || !top_right_clearance || !bottom_left_clearance ||
+      !bottom_right_clearance) {
       continue;
-    } else if (  // NOLINT
-      top_left.get() < epsilon || top_right.get() < epsilon || bottom_left.get() < epsilon ||
-      bottom_right.get() < epsilon) {
-      return std::max(static_cast<int>(i - 1), 0);
+    } else if (
+      top_left_clearance.get() < epsilon || top_right_clearance.get() < epsilon ||
+      bottom_left_clearance.get() < epsilon || bottom_right_clearance.get() < epsilon) {
+      return std::max(static_cast<int>(i) - 1, 0);
+    }
+  }
+  return boost::none;
+}
+
+boost::optional<int> getStopIdxFromCircles(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius,
+  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
+  const nav_msgs::msg::MapMetaData & map_info)
+{
+  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj_points, ego_pose.position);
+  for (size_t i = nearest_idx; i < traj_points.size(); ++i) {
+    const auto & traj_point = traj_points.at(i);
+
+    for (const double offset : avoiding_circle_offsets) {
+      const auto avoiding_pos =
+        tier4_autoware_utils::calcOffsetPose(traj_point.pose, offset, 0.0, 0.0).position;
+      const auto avoiding_pos_clearance = getDistance(road_clearance_map, avoiding_pos, map_info);
+
+      if (!avoiding_pos_clearance) {
+        continue;
+      } else if (avoiding_pos_clearance.get() < avoiding_circle_radius) {
+        return std::max(static_cast<int>(i - 1), 0);
+      }
     }
   }
   return boost::none;
@@ -553,24 +717,63 @@ boost::optional<double> getDistance(
 CVMaps getMaps(
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const TrajectoryParam & traj_param, DebugData * debug_data)
+  const TrajectoryParam & traj_param, DebugData & debug_data, const bool is_showing_debug_info)
 {
-  CVMaps cv_maps;
-  cv_maps.drivable_area = getDrivableAreaInCV(path.drivable_area);
-  cv_maps.clearance_map = getClearanceMap(cv_maps.drivable_area);
+  tier4_autoware_utils::StopWatch stop_watch;
+  stop_watch.tic("total");
 
+  CVMaps cv_maps;
+
+  stop_watch.tic();
+  cv_maps.drivable_area = getDrivableAreaInCV(path.drivable_area);
+  const double drivable_area_ms = stop_watch.toc() * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "        getDrivableAreaInCV:= %f [ms]", drivable_area_ms);
+
+  stop_watch.tic();
+  cv_maps.clearance_map = getClearanceMap(cv_maps.drivable_area);
+  const double clearance_map_ms = stop_watch.toc() * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "        getClearanceMap:= %f [ms]", clearance_map_ms);
+
+  stop_watch.tic();
   std::vector<autoware_auto_perception_msgs::msg::PredictedObject> debug_avoiding_objects;
   cv::Mat objects_image = drawObstaclesOnImage(
-    enable_avoidance, objects, path.points, path.drivable_area.info, cv_maps.clearance_map,
-    traj_param, &debug_avoiding_objects);
+    enable_avoidance, objects, path.points, path.drivable_area.info, cv_maps.drivable_area,
+    cv_maps.clearance_map, traj_param, &debug_avoiding_objects);
+  const double draw_objects_ms = stop_watch.toc() * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "        drawObstaclesOnImage:= %f [ms]", draw_objects_ms);
+
+  stop_watch.tic();
   cv_maps.area_with_objects_map = getAreaWithObjects(cv_maps.drivable_area, objects_image);
+  const double get_area_with_objects_ms = stop_watch.toc() * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "        getAreaWithObjects:= %f [ms]", get_area_with_objects_ms);
+
+  stop_watch.tic();
   cv_maps.only_objects_clearance_map = getClearanceMap(objects_image);
+  const double clearance_map2_ms = stop_watch.toc() * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "        getClearanceMap:= %f [ms]", clearance_map2_ms);
+
   cv_maps.map_info = path.drivable_area.info;
 
-  debug_data->clearance_map = cv_maps.clearance_map;
-  debug_data->only_object_clearance_map = cv_maps.only_objects_clearance_map;
-  debug_data->area_with_objects_map = cv_maps.area_with_objects_map;
-  debug_data->avoiding_objects = debug_avoiding_objects;
+  debug_data.clearance_map = cv_maps.clearance_map;
+  debug_data.only_object_clearance_map = cv_maps.only_objects_clearance_map;
+  debug_data.area_with_objects_map = cv_maps.area_with_objects_map;
+  debug_data.avoiding_objects = debug_avoiding_objects;
+
+  const double total_ms = stop_watch.toc("total") * 1000.0;
+  RCLCPP_INFO_EXPRESSION(
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info,
+    "      getMaps:= %f [ms]", total_ms);
+
   return cv_maps;
 }
 }  // namespace process_cv
