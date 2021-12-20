@@ -15,50 +15,181 @@
 #ifndef OBSTACLE_AVOIDANCE_PLANNER__UTIL_HPP_
 #define OBSTACLE_AVOIDANCE_PLANNER__UTIL_HPP_
 
-#include <eigen3/Eigen/Core>
-#include <tier4_autoware_utils/trajectory/trajectory.hpp>
+#include "eigen3/Eigen/Core"
+#include "interpolation/linear_interpolation.hpp"
+#include "interpolation/spline_interpolation.hpp"
+#include "obstacle_avoidance_planner/common_structs.hpp"
+#include "tier4_autoware_utils/trajectory/trajectory.hpp"
 
-#include <autoware_auto_planning_msgs/msg/path_point.hpp>
-#include <autoware_auto_planning_msgs/msg/trajectory.hpp>
+#include "autoware_auto_planning_msgs/msg/path_point.hpp"
+#include "autoware_auto_planning_msgs/msg/trajectory.hpp"
 
-#include <boost/optional/optional_fwd.hpp>
+#include "boost/optional/optional_fwd.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
-struct VehicleParam;
 struct ReferencePoint;
-struct Trajectories;
-struct TrajectoryParam;
+
+namespace
+{
+template <typename T>
+double lerpTwistX(
+  const T & points, const geometry_msgs::msg::Point & target_pos, const size_t closest_seg_idx)
+{
+  constexpr double epsilon = 1e-6;
+
+  const double closest_to_target_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, target_pos);
+  const double seg_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, closest_seg_idx + 1);
+
+  const double closest_vel = points[closest_seg_idx].longitudinal_velocity_mps;
+  const double next_vel = points[closest_seg_idx + 1].longitudinal_velocity_mps;
+
+  return std::abs(seg_dist) < epsilon
+           ? next_vel
+           : interpolation::lerp(closest_vel, next_vel, closest_to_target_dist / seg_dist);
+}
+
+template <typename T>
+double lerpPoseZ(
+  const T & points, const geometry_msgs::msg::Point & target_pos, const size_t closest_seg_idx)
+{
+  constexpr double epsilon = 1e-6;
+
+  const double closest_to_target_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, target_pos);
+  const double seg_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, closest_seg_idx + 1);
+
+  const double closest_z = points[closest_seg_idx].pose.position.z;
+  const double next_z = points[closest_seg_idx + 1].pose.position.z;
+
+  return std::abs(seg_dist) < epsilon
+           ? next_z
+           : interpolation::lerp(closest_z, next_z, closest_to_target_dist / seg_dist);
+}
+}  // namespace
+
+namespace tier4_autoware_utils
+{
+template <>
+geometry_msgs::msg::Point getPoint(const ReferencePoint & p);
+
+template <>
+geometry_msgs::msg::Pose getPose(const ReferencePoint & p);
+}  // namespace tier4_autoware_utils
 
 namespace util
 {
+// clip trajectory utils
 template <typename T>
-geometry_msgs::msg::Point transformToRelativeCoordinate2D(
-  const T & point, const geometry_msgs::msg::Pose & origin);
+size_t findForwardIndex(const T & points, const size_t begin_idx, const double forward_length)
+{
+  double sum_length = 0.0;
+  for (size_t i = begin_idx; i < points.size() - 1; ++i) {
+    sum_length += tier4_autoware_utils::calcDistance2d(points.at(i), points.at(i + 1));
+    if (sum_length > forward_length) {
+      return i;
+    }
+  }
+  return points.size() - 1;
+}
 
-geometry_msgs::msg::Point transformToAbsoluteCoordinate2D(
-  const geometry_msgs::msg::Point & point, const geometry_msgs::msg::Pose & origin);
+template <typename T>
+T clipForwardPoints(const T & points, const size_t begin_idx, const double forward_length)
+{
+  if (points.empty()) {
+    return T{};
+  }
 
-double calculate2DDistance(
-  const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b);
+  const size_t end_idx = findForwardIndex(points, begin_idx, forward_length);
+  return T{points.begin() + begin_idx, points.begin() + end_idx};
+}
 
-double calculateSquaredDistance(
-  const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b);
+template <typename T>
+T clipBackwardPoints(
+  const T & points, const size_t target_idx, const double backward_length,
+  const double delta_length)
+{
+  if (points.empty()) {
+    return T{};
+  }
 
-double getYawFromPoints(
-  const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & a_root);
+  const int begin_idx =
+    std::max(0, static_cast<int>(target_idx) - static_cast<int>(backward_length / delta_length));
+  return T{points.begin() + begin_idx, points.end()};
+}
 
-double normalizeRadian(const double angle);
+template <typename T>
+T clipBackwardPoints(
+  const T & points, const geometry_msgs::msg::Point pos, const double backward_length,
+  const double delta_length)
+{
+  if (points.empty()) {
+    return T{};
+  }
+
+  const size_t target_idx = tier4_autoware_utils::findNearestIndex(points, pos);
+
+  const int begin_idx =
+    std::max(0, static_cast<int>(target_idx) - static_cast<int>(backward_length / delta_length));
+  return T{points.begin() + begin_idx, points.end()};
+}
+
+// orientation utils
+// double getYawFromPoints(
+//   const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & a_root);
 
 geometry_msgs::msg::Quaternion getQuaternionFromPoints(
   const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & a_root);
 
-geometry_msgs::msg::Quaternion getQuaternionFromYaw(const double yaw);
+geometry_msgs::msg::Quaternion getQuaternionFromPoints(
+  const geometry_msgs::msg::Point & p1, const geometry_msgs::msg::Point & p2,
+  const geometry_msgs::msg::Point & p3, const geometry_msgs::msg::Point & p4);
+
+// coordinate transformation utils
+template <typename T>
+geometry_msgs::msg::Point transformToRelativeCoordinate2D(
+  const T & point, const geometry_msgs::msg::Pose & origin)
+{
+  // NOTE: implement transformation without defining yaw variable
+  //       but directly sin/cos of yaw for fast calculation
+  const auto & q = origin.orientation;
+  const double cos_yaw = 1 - 2 * q.z * q.z;
+  const double sin_yaw = 2 * q.w * q.z;
+
+  geometry_msgs::msg::Point relative_p;
+  const double tmp_x = point.x - origin.position.x;
+  const double tmp_y = point.y - origin.position.y;
+  relative_p.x = tmp_x * cos_yaw + tmp_y * sin_yaw;
+  relative_p.y = -tmp_x * sin_yaw + tmp_y * cos_yaw;
+  relative_p.z = point.z;
+
+  return relative_p;
+}
+
+geometry_msgs::msg::Point transformToAbsoluteCoordinate2D(
+  const geometry_msgs::msg::Point & point, const geometry_msgs::msg::Pose & origin);
 
 template <typename T>
 geometry_msgs::msg::Point transformMapToImage(
-  const T & map_point, const nav_msgs::msg::MapMetaData & occupancy_grid_info);
+  const T & map_point, const nav_msgs::msg::MapMetaData & occupancy_grid_info)
+{
+  geometry_msgs::msg::Point relative_p =
+    transformToRelativeCoordinate2D(map_point, occupancy_grid_info.origin);
+  double resolution = occupancy_grid_info.resolution;
+  double map_y_height = occupancy_grid_info.height;
+  double map_x_width = occupancy_grid_info.width;
+  double map_x_in_image_resolution = relative_p.x / resolution;
+  double map_y_in_image_resolution = relative_p.y / resolution;
+  geometry_msgs::msg::Point image_point;
+  image_point.x = map_y_height - map_y_in_image_resolution;
+  image_point.y = map_x_width - map_x_in_image_resolution;
+  return image_point;
+}
 
 boost::optional<geometry_msgs::msg::Point> transformMapToOptionalImage(
   const geometry_msgs::msg::Point & map_point,
@@ -68,85 +199,157 @@ bool transformMapToImage(
   const geometry_msgs::msg::Point & map_point,
   const nav_msgs::msg::MapMetaData & occupancy_grid_info, geometry_msgs::msg::Point & image_point);
 
-bool interpolate2DPoints(
-  const std::vector<double> & x, const std::vector<double> & y, const double resolution,
-  std::vector<geometry_msgs::msg::Point> & interpolated_points);
+// interpolation utils
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> interpolate2DTrajectoryPoints(
+  const std::vector<double> & base_x, const std::vector<double> & base_y,
+  const std::vector<double> & base_yaw, const double resolution);
 
-std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
-  const std::vector<geometry_msgs::msg::Pose> & first_points,
-  const std::vector<geometry_msgs::msg::Pose> & second_points, const double delta_arc_length);
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> interpolateConnected2DPoints(
+  const std::vector<double> & base_x, const std::vector<double> & base_y, const double resolution,
+  const double begin_yaw, const double end_yaw);
 
-std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
-  const std::vector<geometry_msgs::msg::Pose> & points, const double delta_arc_length);
+std::vector<geometry_msgs::msg::Point> interpolate2DPoints(
+  const std::vector<double> & base_x, const std::vector<double> & base_y, const double resolution,
+  const double offset);
 
-std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
-  const std::vector<geometry_msgs::msg::Point> & points, const double delta_arc_length);
-
-std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
-  const std::vector<ReferencePoint> & points, const double delta_arc_length);
-
-template <typename T>
-std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
-  const T & points, const double delta_arc_length);
-
-template <typename T>
-int getNearestIdx(
-  const T & points, const geometry_msgs::msg::Pose & pose, const int default_idx,
-  const double delta_yaw_threshold);
-
-int getNearestIdx(
-  const std::vector<geometry_msgs::msg::Point> & points, const geometry_msgs::msg::Pose & pose,
-  const int default_idx, const double delta_yaw_threshold);
-
-int getNearestIdxOverPoint(
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getInterpolatedTrajectoryPoints(
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
-  const geometry_msgs::msg::Pose & pose, const int default_idx, const double delta_yaw_threshold);
+  const double delta_arc_length);
+
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getConnectedInterpolatedPoints(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
+  const double delta_arc_length, const double begin_yaw, const double end_yaw);
+
+// std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+//  const std::vector<geometry_msgs::msg::Pose> & first_points,
+//  const std::vector<geometry_msgs::msg::Pose> & second_points, const double delta_arc_length);
+
+// std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+//  const std::vector<geometry_msgs::msg::Pose> & points, const double delta_arc_length);
+
+// std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+//   const std::vector<geometry_msgs::msg::Point> & points, const double delta_arc_length);
+
+// std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+//  const std::vector<ReferencePoint> & points, const double delta_arc_length);
+// template <typename T>
+// std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+//  const T & points, const double delta_arc_length, const double offset = 0.0);
 
 template <typename T>
-int getNearestIdx(const T & points, const geometry_msgs::msg::Point & point, const int default_idx);
+std::vector<geometry_msgs::msg::Point> getInterpolatedPoints(
+  const T & points, const double delta_arc_length, const double offset = 0)
+{
+  constexpr double epsilon = 1e-6;
+  std::vector<double> tmp_x;
+  std::vector<double> tmp_y;
+  for (size_t i = 0; i < points.size(); i++) {
+    const auto & current_point = tier4_autoware_utils::getPoint(points.at(i));
+    if (i > 0) {
+      const auto & prev_point = tier4_autoware_utils::getPoint(points.at(i - 1));
+      if (
+        std::fabs(current_point.x - prev_point.x) < epsilon &&
+        std::fabs(current_point.y - prev_point.y) < epsilon) {
+        continue;
+      }
+    }
+    tmp_x.push_back(current_point.x);
+    tmp_y.push_back(current_point.y);
+  }
 
+  return util::interpolate2DPoints(tmp_x, tmp_y, delta_arc_length, offset);
+}
+
+// nearest index utils
+/*
 int getNearestIdx(
-  const std::vector<geometry_msgs::msg::Point> & points, const geometry_msgs::msg::Point & point);
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
+  const geometry_msgs::msg::Pose & pose, const int default_idx, const double delta_yaw_threshold,
+  const double delta_dist_threshold);
+*/
 
-template <typename T>
-int getNearestIdx(const T & points, const geometry_msgs::msg::Point & point);
+// int getNearestIdx(
+//   const std::vector<geometry_msgs::msg::Point> & points, const geometry_msgs::msg::Pose & pose,
+//   const int default_idx, const double delta_yaw_threshold);
+
+// int getNearestIdxOverPoint(
+//   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
+//   const geometry_msgs::msg::Pose & pose, const int default_idx, const double
+//   delta_yaw_threshold);
+
+// int getNearestIdx(
+//   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
+//   const geometry_msgs::msg::Pose & pose, const int default_idx, const double delta_yaw_threshold,
+//   const double delta_dist_threshold);
 
 int getNearestIdx(
   const std::vector<ReferencePoint> & points, const double target_s, const int begin_idx);
 
+// points convertion utils
+std::vector<geometry_msgs::msg::Pose> convertToPosesWithYawEstimation(
+  const std::vector<geometry_msgs::msg::Point> points);
+
 template <typename T>
-int getNearestPointIdx(const T & points, const geometry_msgs::msg::Point & point);
+ReferencePoint convertToReferencePoint(const T & point);
 
-std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> convertPathToTrajectory(
-  const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points);
+// NOTE: acceleration is not converted
+template <typename T>
+autoware_auto_planning_msgs::msg::TrajectoryPoint convertToTrajectoryPoint(const T & point)
+{
+  autoware_auto_planning_msgs::msg::TrajectoryPoint traj_point;
+  traj_point.pose = tier4_autoware_utils::getPose(point);
+  traj_point.longitudinal_velocity_mps = point.longitudinal_velocity_mps;
+  traj_point.lateral_velocity_mps = point.lateral_velocity_mps;
+  traj_point.heading_rate_rps = point.heading_rate_rps;
+  return traj_point;
+}
 
-std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>
-convertPointsToTrajectoryPointsWithYaw(const std::vector<geometry_msgs::msg::Point> & points);
+template <>
+inline autoware_auto_planning_msgs::msg::TrajectoryPoint convertToTrajectoryPoint(
+  const ReferencePoint & point)
+{
+  autoware_auto_planning_msgs::msg::TrajectoryPoint traj_point;
+  traj_point.pose = tier4_autoware_utils::getPose(point);
+  return traj_point;
+}
 
+// functions to convert to another type of points
+template <typename T>
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> convertToTrajectoryPoints(
+  const std::vector<T> & points)
+{
+  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> traj_points;
+  for (const auto & point : points) {
+    const auto traj_point = convertToTrajectoryPoint(point);
+    traj_points.push_back(traj_point);
+  }
+  return traj_points;
+}
+
+template <typename T>
+std::vector<ReferencePoint> convertToReferencePoints(const std::vector<T> & points)
+{
+  std::vector<ReferencePoint> ref_points;
+  for (const auto & point : points) {
+    const auto ref_point = convertToReferencePoint(point);
+    ref_points.push_back(ref_point);
+  }
+  return ref_points;
+}
+
+// others utils
+/*
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> fillTrajectoryWithVelocity(
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
   const double velocity);
-
-template <typename T>
-std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> alignVelocityWithPoints(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const T & points, const int zero_velocity_traj_idx, const int max_skip_comparison_idx);
-
-struct Rectangle
-{
-  int min_x_idx = 0;
-  int min_y_idx = 0;
-  int max_x_idx = 0;
-  int max_y_idx = 0;
-  int area = 0;
-};
+*/
 
 std::vector<std::vector<int>> getHistogramTable(const std::vector<std::vector<int>> & input);
 
-Rectangle getLargestRectangleInRow(
+UtilRectangle getLargestRectangleInRow(
   const std::vector<int> & histo, const int current_row, const int row_size);
 
-Rectangle getLargestRectangle(const std::vector<std::vector<int>> & input);
+UtilRectangle getLargestRectangle(const std::vector<std::vector<int>> & input);
 
 boost::optional<geometry_msgs::msg::Point> getLastExtendedPoint(
   const autoware_auto_planning_msgs::msg::PathPoint & path_point,
@@ -158,21 +361,6 @@ boost::optional<autoware_auto_planning_msgs::msg::TrajectoryPoint> getLastExtend
   const geometry_msgs::msg::Pose & pose, const double delta_yaw_threshold,
   const double delta_dist_threshold);
 
-struct Footprint
-{
-  geometry_msgs::msg::Point p;
-  geometry_msgs::msg::Point top_left;
-  geometry_msgs::msg::Point top_right;
-  geometry_msgs::msg::Point bottom_left;
-  geometry_msgs::msg::Point bottom_right;
-};
-
-std::vector<Footprint> getVehicleFootprints(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points,
-  const VehicleParam & vehicle_param);
-
-std::vector<double> calcEuclidDist(const std::vector<double> & x, const std::vector<double> & y);
-
 bool hasValidNearestPointFromEgo(
   const geometry_msgs::msg::Pose & ego_pose, const Trajectories & trajs,
   const TrajectoryParam & traj_param);
@@ -180,21 +368,95 @@ bool hasValidNearestPointFromEgo(
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> concatTraj(
   const Trajectories & trajs);
 
-int getZeroVelocityIdx(
-  const bool is_showing_debug_info, const std::vector<geometry_msgs::msg::Point> & fine_points,
-  const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-  const std::unique_ptr<Trajectories> & opt_trajs, const TrajectoryParam & traj_param);
-
+/*
 template <typename T>
 int getZeroVelocityIdxFromPoints(
-  const T & points, const std::vector<geometry_msgs::msg::Point> & fine_points,
-  const int /* default_idx */, const TrajectoryParam & traj_param);
+  const T & points, const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> &
+fine_points, const TrajectoryParam & traj_param)
+{
+  const auto opt_zero_vel_idx = tier4_autoware_utils::searchZeroVelocityIndex(points);
+  const size_t zero_vel_idx = opt_zero_vel_idx ? opt_zero_vel_idx.get() : points.size() - 1;
+
+  const int default_zero_velocity_fine_points_idx = fine_points.size() - 1;
+  const int zero_velocity_fine_points_idx = util::getNearestIdx(
+    fine_points, points[zero_vel_idx].pose, default_zero_velocity_fine_points_idx,
+    traj_param.delta_yaw_threshold_for_closest_point,
+    traj_param.delta_dist_threshold_for_closest_point);
+  return zero_velocity_fine_points_idx;
+}
+*/
 
 template <typename T>
-double getArcLength(const T & points, const int initial_idx = 0);
+std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> alignVelocityWithPoints(
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & base_traj_points,
+  const T & points, const int zero_vel_traj_idx)
+{
+  auto traj_points = base_traj_points;
+  size_t prev_begin_idx = 0;
+  for (size_t i = 0; i < traj_points.size(); ++i) {
+    const auto truncated_points = clipForwardPoints(points, prev_begin_idx, 5.0);
 
-double getArcLength(
-  const std::vector<geometry_msgs::msg::Pose> & points, const int initial_idx = 0);
+    const auto & target_pos = traj_points[i].pose.position;
+    const size_t closest_seg_idx =
+      tier4_autoware_utils::findNearestSegmentIndex(truncated_points, target_pos);
+
+    // lerp z
+    traj_points[i].pose.position.z = lerpPoseZ(truncated_points, target_pos, closest_seg_idx);
+
+    // lerp vx
+    const double target_vel = lerpTwistX(truncated_points, target_pos, closest_seg_idx);
+    if (static_cast<int>(i) >= zero_vel_traj_idx) {
+      traj_points[i].longitudinal_velocity_mps = 0.0;
+    } else if (target_vel < 1e-6) {
+      const auto prev_idx = std::max(static_cast<int>(i) - 1, 0);
+      traj_points[i].longitudinal_velocity_mps = traj_points[prev_idx].longitudinal_velocity_mps;
+    } else {
+      traj_points[i].longitudinal_velocity_mps = target_vel;
+    }
+    /* else if (static_cast<int>(i) <= max_skip_comparison_idx) {
+      traj_points[i].longitudinal_velocity_mps = target_vel;
+    } else {
+      traj_points[i].longitudinal_velocity_mps = std::fmin(target_vel,
+    traj_points[i].longitudinal_velocity_mps);
+    }*/
+
+    // NOTE: closest_seg_idx is for the clipped trajectory. This operation must be "+=".
+    prev_begin_idx += closest_seg_idx;
+  }
+  return traj_points;
+}
+
+template <typename T>
+std::vector<double> calcCurvature(const T & points, const size_t num_sampling_points)
+{
+  std::vector<double> res(points.size());
+  const size_t num_points = static_cast<int>(points.size());
+
+  /* calculate curvature by circle fitting from three points */
+  geometry_msgs::msg::Point p1, p2, p3;
+  size_t max_smoothing_num = static_cast<size_t>(std::floor(0.5 * (num_points - 1)));
+  size_t L = std::min(num_sampling_points, max_smoothing_num);
+  for (size_t i = L; i < num_points - L; ++i) {
+    p1 = tier4_autoware_utils::getPoint(points.at(i - L));
+    p2 = tier4_autoware_utils::getPoint(points.at(i));
+    p3 = tier4_autoware_utils::getPoint(points.at(i + L));
+    double den = std::max(
+      tier4_autoware_utils::calcDistance2d(p1, p2) * tier4_autoware_utils::calcDistance2d(p2, p3) *
+        tier4_autoware_utils::calcDistance2d(p3, p1),
+      0.0001);
+    const double curvature =
+      2.0 * ((p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)) / den;
+    res.at(i) = curvature;
+  }
+
+  /* first and last curvature is copied from next value */
+  for (size_t i = 0; i < std::min(L, num_points); ++i) {
+    res.at(i) = res.at(std::min(L, num_points - 1));
+    res.at(num_points - i - 1) =
+      res.at(std::max(static_cast<int>(num_points) - static_cast<int>(L) - 1, 0));
+  }
+  return res;
+}
 
 void logOSQPSolutionStatus(const int solution_status);
 
