@@ -366,7 +366,8 @@ bool hasValidNearestPointFromEgo(
   const TrajectoryParam & traj_param);
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> concatTraj(
-  const Trajectories & trajs);
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & extended_traj_points);
 
 /*
 template <typename T>
