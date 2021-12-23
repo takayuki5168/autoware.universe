@@ -910,4 +910,17 @@ void logOSQPSolutionStatus(const int solution_status)
   }
 }
 
+void compensateLastPose(
+  const autoware_auto_planning_msgs::msg::PathPoint & last_path_point,
+  const TrajectoryParam & traj_param,
+  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points)
+{
+  const geometry_msgs::msg::Pose last_pose = traj_points.back().pose;
+  const auto extended_point_opt = util::getLastExtendedTrajPoint(
+    last_path_point, last_pose, traj_param.delta_yaw_threshold_for_closest_point,
+    traj_param.max_dist_for_extending_end_point);
+  if (extended_point_opt) {
+    traj_points.push_back(extended_point_opt.get());
+  }
+}
 }  // namespace util

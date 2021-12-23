@@ -22,6 +22,8 @@
 #include "autoware_auto_planning_msgs/msg/trajectory_point.hpp"
 #include "nav_msgs/msg/map_meta_data.hpp"
 
+#include <boost/optional.hpp>
+
 #include <vector>
 
 struct ReferencePoint;
@@ -103,7 +105,7 @@ struct FOAData
 
 struct DebugData
 {
-  bool is_expected_to_over_drivable_area = false;
+  boost::optional<geometry_msgs::msg::Pose> stop_pose_by_drivable_area = boost::none;
   std::vector<geometry_msgs::msg::Point> interpolated_points;
   std::vector<geometry_msgs::msg::Point> straight_points;
   std::vector<geometry_msgs::msg::Pose> fixed_points;

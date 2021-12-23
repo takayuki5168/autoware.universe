@@ -141,34 +141,25 @@ private:
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generateOptimizedTrajectory(
     const autoware_auto_planning_msgs::msg::Path & input_path);
 
+  boost::optional<Trajectories> calcTrajectories(
+    const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps,
+    DebugData * debug_data);
+
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
     const autoware_auto_planning_msgs::msg::Path & in_path);
 
-  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> convertPointsToTrajectory(
+  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> reCalcTrajectoryPoints(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & trajectory_points) const;
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points) const;
 
   void publishDebugData(
     const DebugData & debug_data, const autoware_auto_planning_msgs::msg::Path & path,
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const VehicleParam & vehicle_param);
 
-  int calculateNonDecelerationRange(
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-    const geometry_msgs::msg::Pose & ego_pose, const geometry_msgs::msg::Twist & ego_twist) const;
-
-  /*
-  Trajectories getTrajectoryInsideArea(
-    const Trajectories & trajs,
-    const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info,
-    DebugData * debug_data) const;
-  */
-
-  boost::optional<Trajectories> calcTrajectoryInsideArea(
-    const Trajectories & trajs,
-    const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const CVMaps & cv_maps, DebugData * debug_data, const bool is_prev_traj = false) const;
+  void calcTrajectoryInsideArea(
+    std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+    const CVMaps & cv_maps, DebugData * debug_data) const;
 
   Trajectories getPrevTrajs(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
@@ -181,13 +172,9 @@ private:
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const Trajectories & trajs) const;
 
-  Trajectories getBaseTrajectory(
-    const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const Trajectories & current_trajs) const;
-
   boost::optional<int> getStopIdx(
-    const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const Trajectories & trajs, const CVMaps & cv_maps) const;
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+    const CVMaps & cv_maps) const;
 
   void declareObstacleAvoidancePlannerParameters();
 
