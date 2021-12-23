@@ -521,19 +521,15 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
 
   const auto traj_points = generateOptimizedTrajectory(path);
 
-  std::cerr << 6 << std::endl;
   const auto post_processed_traj_points =
     generatePostProcessedTrajectory(current_ego_pose_, path.points, traj_points);
-  std::cerr << 7 << std::endl;
   auto output = tier4_autoware_utils::convertToTrajectory(post_processed_traj_points);
   output.header = path.header;
 
   prev_path_points_ptr_ =
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
-  std::cerr << 8 << std::endl;
 
   publishDebugData(debug_data_, path, traj_points, *vehicle_param_ptr_);
-  std::cerr << 9 << std::endl;
   const double total_ms = stop_watch.toc() * 1000.0;
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -574,8 +570,6 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   // set current pose and vel
   mpt_optimizer_ptr_->setEgoData(current_ego_pose_, current_twist_ptr_->twist.linear.x);
 
-  std::cerr << 1 << std::endl;
-
   // update debug_data
   debug_data_.visualize_sampling_num = visualize_sampling_num_;
   debug_data_.current_ego_pose = current_ego_pose_;
@@ -588,18 +582,14 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   const auto avoiding_objects = object_filter_->getAvoidingObjects();
   */
 
-  std::cerr << 2 << std::endl;
-
   // create clearance maps
   const CVMaps cv_maps = process_cv::getMaps(
     enable_avoidance_, path, /*avoiding_objects*/ in_objects_ptr_->objects, *traj_param_ptr_,
     debug_data_, is_showing_debug_info_);
 
-  std::cerr << 3 << std::endl;
   // calculate trajectory with EB and MPT, then extend trajectory
   const auto opt_trajs = calcTrajectories(path, cv_maps);
 
-  std::cerr << 4 << std::endl;
   // insert 0 velocity when trajectory is over drivable area
   stop_watch.tic();
   const auto trajs_inside_area = [&]() -> Trajectories {
@@ -612,7 +602,6 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
     "    calcTrajectoryInsideArea:= %f [ms]", stop_watch.toc() * 1000.0);
 
-  std::cerr << 5 << std::endl;
   // make previous trajectories
   prev_trajs_ptr_ = std::make_unique<Trajectories>(
     makePrevTrajectories(current_ego_pose_, path.points, trajs_inside_area));

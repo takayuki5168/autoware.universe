@@ -488,6 +488,8 @@ visualization_msgs::msg::MarkerArray getBoundsLineMarkerArray(
   const auto current_time = rclcpp::Clock().now();
   visualization_msgs::msg::MarkerArray msg;
 
+  if (ref_points.empty() || ref_bounds_pose.empty()) return msg;
+
   for (size_t bound_idx = 0; bound_idx < ref_points.at(0).vehicle_bounds.size(); ++bound_idx) {
     const std::string ns = "base_bounds_" + std::to_string(bound_idx);
 
@@ -807,6 +809,8 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
 nav_msgs::msg::OccupancyGrid getDebugCostmap(
   const cv::Mat & clearance_map, const nav_msgs::msg::OccupancyGrid & occupancy_grid)
 {
+  if(clearance_map.empty()) return nav_msgs::msg::OccupancyGrid();
+
   cv::Mat tmp;
   clearance_map.copyTo(tmp);
   cv::normalize(tmp, tmp, 0, 255, cv::NORM_MINMAX, CV_8UC1);
