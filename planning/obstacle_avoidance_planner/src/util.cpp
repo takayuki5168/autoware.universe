@@ -836,7 +836,7 @@ bool hasValidNearestPointFromEgo(
   const geometry_msgs::msg::Pose & ego_pose, const Trajectories & trajs,
   const TrajectoryParam & traj_param)
 {
-  const auto traj = concatTraj(trajs);
+  const auto traj = trajs.model_predictive_trajectory;
   const auto interpolated_points =
     util::getInterpolatedPoints(traj, traj_param.delta_arc_length_for_trajectory);
 
@@ -852,14 +852,13 @@ bool hasValidNearestPointFromEgo(
 }
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> concatTraj(
-  const Trajectories & trajs)
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & extended_traj_points)
 {
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> trajectory;
+  trajectory.insert(trajectory.end(), traj_points.begin(), traj_points.end());
   trajectory.insert(
-    trajectory.end(), trajs.model_predictive_trajectory.begin(),
-    trajs.model_predictive_trajectory.end());
-  trajectory.insert(
-    trajectory.end(), trajs.extended_trajectory.begin(), trajs.extended_trajectory.end());
+    trajectory.end(), extended_traj_points.begin(), extended_traj_points.end());
   return trajectory;
 }
 

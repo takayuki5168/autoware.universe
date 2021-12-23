@@ -146,7 +146,6 @@ struct Trajectories
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> smoothed_trajectory;
   std::vector<ReferencePoint> mpt_ref_points;
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> model_predictive_trajectory;
-  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> extended_trajectory;
 };
 
 struct TrajectoryParam

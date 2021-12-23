@@ -78,6 +78,9 @@ private:
   std::unique_ptr<MPTParam> mpt_param_ptr_;
   int visualize_sampling_num_;
 
+  // debug
+  DebugData debug_data_;
+
   geometry_msgs::msg::Pose current_ego_pose_;
   std::unique_ptr<geometry_msgs::msg::TwistStamped> current_twist_ptr_;
   std::unique_ptr<geometry_msgs::msg::Pose> prev_ego_pose_ptr_;
@@ -127,23 +130,20 @@ private:
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generatePostProcessedTrajectory(
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & merged_optimized_points)
-    const;
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & merged_optimized_points);
 
   bool needReplan(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getExtendedOptimizedTrajectory(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points,
-    DebugData & debug_data);
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generateOptimizedTrajectory(
     const autoware_auto_planning_msgs::msg::Path & input_path);
 
   boost::optional<Trajectories> calcTrajectories(
-    const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps,
-    DebugData * debug_data);
+    const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps);
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
     const autoware_auto_planning_msgs::msg::Path & in_path);
@@ -159,7 +159,7 @@ private:
 
   void calcTrajectoryInsideArea(
     std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-    const CVMaps & cv_maps, DebugData * debug_data) const;
+    const CVMaps & cv_maps);
 
   Trajectories getPrevTrajs(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
@@ -170,7 +170,7 @@ private:
   Trajectories makePrevTrajectories(
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const Trajectories & trajs) const;
+    const Trajectories & trajs);
 
   boost::optional<int> getStopIdx(
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
