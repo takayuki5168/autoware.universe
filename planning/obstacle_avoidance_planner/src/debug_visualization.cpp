@@ -716,8 +716,9 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
 {
   // virtual wall
   visualization_msgs::msg::MarkerArray vis_marker_array;
-  if (debug_data.is_expected_to_over_drivable_area && !optimized_points.empty()) {
-    const auto virtual_wall_pose = getVirtualWallPose(optimized_points.back().pose, vehicle_param);
+  if (debug_data.stop_pose_by_drivable_area && !optimized_points.empty()) {
+    const auto virtual_wall_pose =
+      getVirtualWallPose(debug_data.stop_pose_by_drivable_area.get(), vehicle_param);
     appendMarkerArray(
       getVirtualWallMarkerArray(virtual_wall_pose, "virtual_wall", 1.0, 0, 0), &vis_marker_array);
     appendMarkerArray(
