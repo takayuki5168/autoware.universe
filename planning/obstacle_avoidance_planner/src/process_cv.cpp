@@ -630,74 +630,69 @@ cv::Mat getAreaWithObjects(const cv::Mat & drivable_area, const cv::Mat & object
   return area_with_objects;
 }
 
-boost::optional<int> getStopIdxFromFootprint(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
+bool isOutsideDrivableArea(const geometry_msgs::msg::Point & pos,
+                           const cv::Mat & road_clearance_map,
+                           const nav_msgs::msg::MapMetaData & map_info, const double max_dist)
+{
+  const auto dist = getDistance(road_clearance_map, pos, map_info);
+  if (dist) {
+    return dist.get() < max_dist;
+  }
+
+  return false;
+}
+
+bool isOutsideDrivableAreaFromRectangleFootprint(
+  const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
+  const cv::Mat & road_clearance_map,
   const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param)
 {
   const double half_width = vehicle_param.width / 2.0;
   const double base_to_front = vehicle_param.length - vehicle_param.rear_overhang;
   const double base_to_rear = vehicle_param.rear_overhang;
 
-  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj_points, ego_pose.position);
-  for (size_t i = nearest_idx; i < traj_points.size(); ++i) {
-    const auto & traj_point = traj_points.at(i);
+  const auto top_left_pos =
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, -half_width, 0.0)
+    .position;
+  const auto top_right_pos =
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, half_width, 0.0)
+    .position;
+  const auto bottom_right_pos =
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, half_width, 0.0)
+    .position;
+  const auto bottom_left_pos =
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, -half_width, 0.0)
+    .position;
 
-    const auto top_left_pos =
-      tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, -half_width, 0.0)
-        .position;
-    const auto top_right_pos =
-      tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, half_width, 0.0)
-        .position;
-    const auto bottom_right_pos =
-      tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, half_width, 0.0)
-        .position;
-    const auto bottom_left_pos =
-      tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, -half_width, 0.0)
-        .position;
+  constexpr double epsilon = 1e-8;
+  const bool out_top_left = isOutsideDrivableArea(top_left_pos, road_clearance_map, map_info, epsilon);
+  const bool out_top_right = isOutsideDrivableArea(top_right_pos, road_clearance_map, map_info, epsilon);
+  const bool out_bottom_left = isOutsideDrivableArea(bottom_left_pos, road_clearance_map, map_info, epsilon);
+  const bool out_bottom_right = isOutsideDrivableArea(bottom_right_pos, road_clearance_map, map_info, epsilon);
 
-    const auto top_left_clearance = getDistance(road_clearance_map, top_left_pos, map_info);
-    const auto top_right_clearance = getDistance(road_clearance_map, top_right_pos, map_info);
-    const auto bottom_right_clearance = getDistance(road_clearance_map, bottom_right_pos, map_info);
-    const auto bottom_left_clearance = getDistance(road_clearance_map, bottom_left_pos, map_info);
-
-    constexpr double epsilon = 1e-8;
-    if (
-      !top_left_clearance || !top_right_clearance || !bottom_left_clearance ||
-      !bottom_right_clearance) {
-      continue;
-    } else if (
-      top_left_clearance.get() < epsilon || top_right_clearance.get() < epsilon ||
-      bottom_left_clearance.get() < epsilon || bottom_right_clearance.get() < epsilon) {
-      return std::max(static_cast<int>(i) - 1, 0);
-    }
+  if (out_top_left || out_top_right || out_bottom_left || out_bottom_right) {
+    return true;
   }
-  return boost::none;
+
+  return false;
 }
 
-boost::optional<int> getStopIdxFromCircles(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius,
-  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
-  const nav_msgs::msg::MapMetaData & map_info)
+bool isOutsideDrivableAreaFromCirclesFootprint(
+  const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
+  const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info,
+  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius)
 {
-  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj_points, ego_pose.position);
-  for (size_t i = nearest_idx; i < traj_points.size(); ++i) {
-    const auto & traj_point = traj_points.at(i);
+  for (const double offset : avoiding_circle_offsets) {
+    const auto avoiding_pos =
+      tier4_autoware_utils::calcOffsetPose(traj_point.pose, offset, 0.0, 0.0).position;
 
-    for (const double offset : avoiding_circle_offsets) {
-      const auto avoiding_pos =
-        tier4_autoware_utils::calcOffsetPose(traj_point.pose, offset, 0.0, 0.0).position;
-      const auto avoiding_pos_clearance = getDistance(road_clearance_map, avoiding_pos, map_info);
-
-      if (!avoiding_pos_clearance) {
-        continue;
-      } else if (avoiding_pos_clearance.get() < avoiding_circle_radius) {
-        return std::max(static_cast<int>(i - 1), 0);
-      }
+    const bool outside_drivable_area = isOutsideDrivableArea(avoiding_pos, road_clearance_map, map_info, avoiding_circle_radius);
+    if (outside_drivable_area) {
+      return true;
     }
   }
-  return boost::none;
+
+  return false;
 }
 
 boost::optional<double> getDistance(

@@ -84,7 +84,7 @@ private:
   geometry_msgs::msg::Pose current_ego_pose_;
   std::unique_ptr<geometry_msgs::msg::TwistStamped> current_twist_ptr_;
   std::unique_ptr<geometry_msgs::msg::Pose> prev_ego_pose_ptr_;
-  std::unique_ptr<Trajectories> prev_trajs_ptr_;
+  std::unique_ptr<Trajectories> prev_optimal_trajs_ptr_;
   std::unique_ptr<std::vector<autoware_auto_planning_msgs::msg::PathPoint>> prev_path_points_ptr_;
   std::unique_ptr<autoware_auto_perception_msgs::msg::PredictedObjects> in_objects_ptr_;
 
@@ -142,7 +142,7 @@ private:
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generateOptimizedTrajectory(
     const autoware_auto_planning_msgs::msg::Path & input_path);
 
-  boost::optional<Trajectories> calcTrajectories(
+  Trajectories calcTrajectories(
     const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps);
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
@@ -171,10 +171,6 @@ private:
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const Trajectories & trajs);
-
-  boost::optional<int> getStopIdx(
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-    const CVMaps & cv_maps) const;
 
   void declareObstacleAvoidancePlannerParameters();
 
