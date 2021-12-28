@@ -128,7 +128,6 @@ private:
 
   // generate fine trajectory
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generatePostProcessedTrajectory(
-    const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & merged_optimized_points);
 
@@ -157,7 +156,7 @@ private:
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const VehicleParam & vehicle_param);
 
-  void calcTrajectoryInsideArea(
+  void calcTrajectoryInsideDrivableArea(
     std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const CVMaps & cv_maps);
 
@@ -168,7 +167,6 @@ private:
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
 
   Trajectories makePrevTrajectories(
-    const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const Trajectories & trajs);
 

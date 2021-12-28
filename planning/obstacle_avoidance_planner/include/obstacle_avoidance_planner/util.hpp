@@ -465,15 +465,6 @@ void compensateLastPose(
   const autoware_auto_planning_msgs::msg::PathPoint & last_path_point,
   const TrajectoryParam & traj_param,
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points);
-
-template <typename T>
-T searchZeroVelocityPoint(const std::vector<T> & points)
-{
-  const auto opt_zero_vel_idx = tier4_autoware_utils::searchZeroVelocityIndex(points);
-  const size_t zero_vel_idx = opt_zero_vel_idx ? opt_zero_vel_idx.get() : points.size() - 1;
-  return points.at(zero_vel_idx);
-}
-
 }  // namespace util
 
 #endif  // OBSTACLE_AVOIDANCE_PLANNER__UTIL_HPP_

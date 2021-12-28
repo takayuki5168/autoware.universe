@@ -17,7 +17,7 @@
 import argparse
 import time
 
-from autoware_vehicle_msgs.msg import Engage
+from autoware_auto_vehicle_msgs.msg import Engage
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
 import rclpy

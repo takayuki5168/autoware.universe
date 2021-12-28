@@ -38,6 +38,15 @@
 
 namespace
 {
+template <typename T1, typename T2>
+size_t searchExtendedZeroVelocityIndex(const std::vector<T1> & fine_points, const std::vector<T2> & points)
+{
+  const auto opt_zero_vel_idx = tier4_autoware_utils::searchZeroVelocityIndex(points);
+  const size_t zero_vel_idx = opt_zero_vel_idx ? opt_zero_vel_idx.get() : points.size() - 1;
+  return tier4_autoware_utils::findNearestIndex(
+    fine_points, points.at(zero_vel_idx).pose.position);
+}
+
 bool isPathShapeChanged(
   const geometry_msgs::msg::Pose & ego_pose,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
@@ -519,17 +528,17 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
 
   debug_data_ = DebugData();
 
-  const auto traj_points = generateOptimizedTrajectory(path);
+  const auto optimized_traj_points = generateOptimizedTrajectory(path);
 
   const auto post_processed_traj_points =
-    generatePostProcessedTrajectory(current_ego_pose_, path.points, traj_points);
+    generatePostProcessedTrajectory(path.points, optimized_traj_points);
   auto output = tier4_autoware_utils::convertToTrajectory(post_processed_traj_points);
   output.header = path.header;
 
   prev_path_points_ptr_ =
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
 
-  publishDebugData(debug_data_, path, traj_points, *vehicle_param_ptr_);
+  publishDebugData(debug_data_, path, optimized_traj_points, *vehicle_param_ptr_);
   const double total_ms = stop_watch.toc() * 1000.0;
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -592,15 +601,15 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
 
   // insert 0 velocity when trajectory is over drivable area
   stop_watch.tic();
-  calcTrajectoryInsideArea(optimal_trajs.model_predictive_trajectory, cv_maps);
+  calcTrajectoryInsideDrivableArea(optimal_trajs.model_predictive_trajectory, cv_maps);
 
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    calcTrajectoryInsideArea:= %f [ms]", stop_watch.toc() * 1000.0);
+    "    calcTrajectoryInsideDrivableArea:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // make previous trajectories
   prev_optimal_trajs_ptr_ = std::make_unique<Trajectories>(
-    makePrevTrajectories(current_ego_pose_, path.points, optimal_trajs));
+    makePrevTrajectories(path.points, optimal_trajs));
 
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -746,14 +755,18 @@ ObstacleAvoidancePlanner::getExtendedOptimizedTrajectory(
   debug_data_.extended_non_fixed_traj = interpolated_non_fixed_traj_points;
   debug_data_.extended_fixed_traj = fixed_traj_points;
 
+  // TODO(murooka) deal with 1e10
+  for (auto & point : extended_points) {
+    point.longitudinal_velocity_mps = 1e10;
+  }
+
   return extended_points;
 }
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>
 ObstacleAvoidancePlanner::generatePostProcessedTrajectory(
-  const geometry_msgs::msg::Pose & ego_pose,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points)
+  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_traj_points)
 {
   tier4_autoware_utils::StopWatch stop_watch;
   stop_watch.tic();
@@ -761,42 +774,39 @@ ObstacleAvoidancePlanner::generatePostProcessedTrajectory(
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> trajectory_points;
   if (path_points.empty()) {
     autoware_auto_planning_msgs::msg::TrajectoryPoint tmp_point;
-    tmp_point.pose = ego_pose;
-    tmp_point.longitudinal_velocity_mps = 0;
+    tmp_point.pose = current_ego_pose_;
+    tmp_point.longitudinal_velocity_mps = 0.0;
     trajectory_points.push_back(tmp_point);
     return trajectory_points;
   }
-  if (traj_points.empty()) {
+  if (optimized_traj_points.empty()) {
     trajectory_points = util::convertToTrajectoryPoints(path_points);
     return trajectory_points;
   }
 
   // calculate extended trajectory that connects to optimized trajectory smoothly
   stop_watch.tic();
-  const auto extended_traj_points = getExtendedOptimizedTrajectory(path_points, traj_points);
-  const double extend_ms = stop_watch.toc() * 1000.0;
+  const auto extended_traj_points = getExtendedOptimizedTrajectory(path_points, optimized_traj_points);
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "      getExtendedOptimizedTrajectory:= %f [ms]", extend_ms);
+    "      getExtendedOptimizedTrajectory:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // concat trajectories
   stop_watch.tic();
-  const auto optimized_trajectory = util::concatTraj(traj_points, extended_traj_points);
-  const double concat_ms = stop_watch.toc() * 1000.0;
+  const auto full_traj_points = util::concatTraj(optimized_traj_points, extended_traj_points);
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    concatTraj:= %f [ms]", concat_ms);
+    "    concatTraj:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // Basically not changing the shape of trajectory,
   // re-calculate position and velocity with interpolation
-  trajectory_points = reCalcTrajectoryPoints(path_points, traj_points);
+  const auto full_traj_points_with_vel = reCalcTrajectoryPoints(path_points, full_traj_points);
 
-  const auto post_process_ms = stop_watch.toc() * 1000.0;
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    generatePostProcessedTrajectory:= %f [ms]", post_process_ms);
+    "    generatePostProcessedTrajectory:= %f [ms]", stop_watch.toc() * 1000.0);
 
-  return trajectory_points;
+  return full_traj_points_with_vel;
 }
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>
@@ -806,32 +816,30 @@ ObstacleAvoidancePlanner::reCalcTrajectoryPoints(
 {
   tier4_autoware_utils::StopWatch stop_watch;
 
-  // interpolate pose (x, y, and yaw)
-  auto interpolated_traj_points = util::getInterpolatedTrajectoryPoints(
-    traj_points, traj_param_ptr_->delta_arc_length_for_trajectory);
+  const auto fine_traj_points =
+    [&]() {
+      // interpolate pose (x, y, and yaw)
+      auto interpolated_traj_points = util::getInterpolatedTrajectoryPoints(
+        traj_points, traj_param_ptr_->delta_arc_length_for_trajectory);
 
-  // compensate last pose
-  util::compensateLastPose(path_points.back(), *traj_param_ptr_, interpolated_traj_points);
-  auto compensated_traj_points = traj_points;
-  util::compensateLastPose(path_points.back(), *traj_param_ptr_, compensated_traj_points);
+      // compensate last pose
+      util::compensateLastPose(path_points.back(), *traj_param_ptr_, interpolated_traj_points);
 
-  // search zero velocity index
-  const auto zero_vel_path_point = util::searchZeroVelocityPoint(path_points);
-  const auto zero_vel_traj_point = util::searchZeroVelocityPoint(compensated_traj_points);
-  const size_t zero_vel_interpolated_traj_idx = std::min(
-    tier4_autoware_utils::findNearestIndex(
-      interpolated_traj_points, zero_vel_path_point.pose.position),
-    tier4_autoware_utils::findNearestIndex(
-      interpolated_traj_points, zero_vel_traj_point.pose.position));
+      return interpolated_traj_points;
+    }();
+
+  // search zero velocity index of fine_traj_points
+  const size_t zero_vel_path_idx = searchExtendedZeroVelocityIndex(fine_traj_points, path_points);
+  const size_t zero_vel_traj_idx = searchExtendedZeroVelocityIndex(fine_traj_points, traj_points);
+  const size_t zero_vel_fine_traj_idx = std::min(zero_vel_path_idx, zero_vel_traj_idx);
 
   // search nearest velocity to path point, and fill in result trajectory
   stop_watch.tic();
   const auto re_calc_traj_points = util::alignVelocityWithPoints(
-    interpolated_traj_points, path_points, zero_vel_interpolated_traj_idx);
-  const double align_velocity_ms = stop_watch.toc() * 1000.0;
+    fine_traj_points, path_points, zero_vel_fine_traj_idx);
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    alignVelocity:= %f [ms]", align_velocity_ms);
+    "    alignVelocity:= %f [ms]", stop_watch.toc() * 1000.0);
 
   return re_calc_traj_points;
 }
@@ -931,7 +939,7 @@ void ObstacleAvoidancePlanner::publishDebugData(
     "    publishDebugData:= %f [ms]", stop_watch.toc("total") * 1000.0);
 }
 
-void ObstacleAvoidancePlanner::calcTrajectoryInsideArea(
+void ObstacleAvoidancePlanner::calcTrajectoryInsideDrivableArea(
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
   const CVMaps & cv_maps)
 {
@@ -984,7 +992,6 @@ ObstacleAvoidancePlanner::getPrevTrajectory(
 }
 
 Trajectories ObstacleAvoidancePlanner::makePrevTrajectories(
-  const geometry_msgs::msg::Pose & ego_pose,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const Trajectories & trajs)
 {
@@ -992,7 +999,8 @@ Trajectories ObstacleAvoidancePlanner::makePrevTrajectories(
   stop_watch.tic();
 
   const auto post_processed_smoothed_traj =
-    generatePostProcessedTrajectory(ego_pose, path_points, trajs.smoothed_trajectory);
+    generatePostProcessedTrajectory(path_points, trajs.smoothed_trajectory);
+  // TODO(murooka) generatePoseProcessedTrajectory may be too large
   Trajectories trajectories;
   trajectories.smoothed_trajectory = post_processed_smoothed_traj;
   trajectories.mpt_ref_points = trajs.mpt_ref_points;
