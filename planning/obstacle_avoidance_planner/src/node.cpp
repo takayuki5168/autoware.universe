@@ -475,7 +475,7 @@ void ObstacleAvoidancePlanner::initializeParam()
     is_showing_debug_info_, *traj_param_ptr_, *vehicle_param_ptr_, *mpt_param_ptr_);
 
   prev_path_points_ptr_ = nullptr;
-  prev_trajs_ptr_ = nullptr;
+  prev_optimal_trajs_ptr_ = nullptr;
 }
 
 void ObstacleAvoidancePlanner::pathCallback(
@@ -546,16 +546,16 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
 
   if (reset_prev_info_) {
     prev_path_points_ptr_ = nullptr;
-    prev_trajs_ptr_ = nullptr;
+    prev_optimal_trajs_ptr_ = nullptr;
   }
 
   // if ego pose moves far, reset optimization
   if (
-    prev_trajs_ptr_ &&
-    !util::hasValidNearestPointFromEgo(current_ego_pose_, *prev_trajs_ptr_, *traj_param_ptr_)) {
+    prev_optimal_trajs_ptr_ &&
+    !util::hasValidNearestPointFromEgo(current_ego_pose_, *prev_optimal_trajs_ptr_, *traj_param_ptr_)) {
     RCLCPP_INFO(
       get_logger(), "[Avoidance] Could not find valid nearest point from ego, reset prev trajs");
-    prev_trajs_ptr_ = nullptr;
+    prev_optimal_trajs_ptr_ = nullptr;
   }
 
   // retun prev trajctory if replan is not needed
@@ -588,29 +588,25 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
     debug_data_, is_showing_debug_info_);
 
   // calculate trajectory with EB and MPT, then extend trajectory
-  const auto opt_trajs = calcTrajectories(path, cv_maps);
+  auto optimal_trajs = calcTrajectories(path, cv_maps);
 
   // insert 0 velocity when trajectory is over drivable area
   stop_watch.tic();
-  const auto trajs_inside_area = [&]() -> Trajectories {
-    auto trajs = opt_trajs ? opt_trajs.get() : getPrevTrajs(path.points);
-    calcTrajectoryInsideArea(trajs.model_predictive_trajectory, cv_maps);
-    return trajs;
-  }();
+  calcTrajectoryInsideArea(optimal_trajs.model_predictive_trajectory, cv_maps);
 
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
     "    calcTrajectoryInsideArea:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // make previous trajectories
-  prev_trajs_ptr_ = std::make_unique<Trajectories>(
-    makePrevTrajectories(current_ego_pose_, path.points, trajs_inside_area));
+  prev_optimal_trajs_ptr_ = std::make_unique<Trajectories>(
+    makePrevTrajectories(current_ego_pose_, path.points, optimal_trajs));
 
   RCLCPP_INFO_EXPRESSION(
     rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
     "  node.generateOptimizedTrajectory:= %f [ms]", stop_watch.toc("total") * 1000.0);
 
-  return trajs_inside_area.model_predictive_trajectory;
+  return optimal_trajs.model_predictive_trajectory;
 }
 
 bool ObstacleAvoidancePlanner::needReplan(
@@ -618,7 +614,7 @@ bool ObstacleAvoidancePlanner::needReplan(
 {
   if (
     !prev_ego_pose_ptr_ || !prev_replanned_time_ptr_ || !prev_path_points_ptr_ ||
-    !prev_trajs_ptr_) {
+    !prev_optimal_trajs_ptr_) {
     return true;
   }
 
@@ -646,24 +642,26 @@ bool ObstacleAvoidancePlanner::needReplan(
   return false;
 }
 
-boost::optional<Trajectories> ObstacleAvoidancePlanner::calcTrajectories(
+Trajectories ObstacleAvoidancePlanner::calcTrajectories(
   const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps)
 {
   tier4_autoware_utils::StopWatch stop_watch;
 
   // smooth trajectory with EB
   const auto eb_traj = eb_path_optimizer_ptr_->getEBTrajectory(
-    enable_avoidance_, current_ego_pose_, path, prev_trajs_ptr_, cv_maps, debug_data_);
+    enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_);
   if (!eb_traj) {
-    return boost::none;
+    return getPrevTrajs(path.points);
   }
 
   // optimize trajectory to be kinematically feasible and collision free with MPT
   const auto mpt_trajs = mpt_optimizer_ptr_->getModelPredictiveTrajectory(
-    enable_avoidance_, eb_traj.get(), path.points, prev_trajs_ptr_, cv_maps, debug_data_);
+    enable_avoidance_, eb_traj.get(), path.points, prev_optimal_trajs_ptr_, cv_maps, debug_data_);
   if (!mpt_trajs) {
-    return boost::none;
+    return getPrevTrajs(path.points);
   }
+
+  // debug data
   debug_data_.mpt_traj = mpt_trajs.get().mpt;
   debug_data_.mpt_ref_traj = util::convertToTrajectoryPoints(mpt_trajs.get().ref_points);
 
@@ -937,25 +935,43 @@ void ObstacleAvoidancePlanner::calcTrajectoryInsideArea(
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
   const CVMaps & cv_maps)
 {
-  auto opt_stop_idx = getStopIdx(traj_points, cv_maps);
-  if (opt_stop_idx) {
-    traj_points[opt_stop_idx.get()].longitudinal_velocity_mps = 0.0;
-    debug_data_.stop_pose_by_drivable_area = traj_points[opt_stop_idx.get()].pose;
+  const auto & map_info = cv_maps.map_info;
+  const auto & road_clearance_map = cv_maps.clearance_map;
+
+  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj_points, current_ego_pose_.position);
+  for (size_t i = nearest_idx; i < traj_points.size(); ++i) {
+    const auto & traj_point = traj_points.at(i);
+
+    const bool is_outside =
+      [&]() {
+        if (use_footprint_for_drivability_) {
+          return process_cv::isOutsideDrivableAreaFromRectangleFootprint(traj_point, road_clearance_map, map_info, *vehicle_param_ptr_);
+        }
+        return process_cv::isOutsideDrivableAreaFromCirclesFootprint(traj_point,
+                                                  road_clearance_map, map_info,
+                                                  mpt_param_ptr_->avoiding_circle_offsets, mpt_param_ptr_->avoiding_circle_radius);
+      }();
+
+    if (is_outside) {
+      traj_points[i].longitudinal_velocity_mps = 0.0;
+      debug_data_.stop_pose_by_drivable_area = traj_points[i].pose;
+      return;
+    }
   }
 }
 
 Trajectories ObstacleAvoidancePlanner::getPrevTrajs(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const
 {
-  if (!prev_trajs_ptr_) {
-    const auto traj = util::convertToTrajectoryPoints(path_points);
-    Trajectories trajs;
-    trajs.smoothed_trajectory = traj;
-    trajs.model_predictive_trajectory = traj;
-    return trajs;
-  } else {
-    return *prev_trajs_ptr_;
+  if (prev_optimal_trajs_ptr_) {
+    return *prev_optimal_trajs_ptr_;
   }
+
+  const auto traj = util::convertToTrajectoryPoints(path_points);
+  Trajectories trajs;
+  trajs.smoothed_trajectory = traj;
+  trajs.model_predictive_trajectory = traj;
+  return trajs;
 }
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>
@@ -987,21 +1003,6 @@ Trajectories ObstacleAvoidancePlanner::makePrevTrajectories(
     "    makePrevTrajectories:= %f [ms]", stop_watch.toc() * 1000.0);
 
   return trajectories;
-}
-
-boost::optional<int> ObstacleAvoidancePlanner::getStopIdx(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const CVMaps & cv_maps) const
-{
-  const auto & map_info = cv_maps.map_info;
-  const auto & road_clearance_map = cv_maps.clearance_map;
-  if (use_footprint_for_drivability_) {
-    return process_cv::getStopIdxFromFootprint(
-      traj_points, current_ego_pose_, road_clearance_map, map_info, *vehicle_param_ptr_);
-  }
-  return process_cv::getStopIdxFromCircles(
-    traj_points, mpt_param_ptr_->avoiding_circle_offsets, mpt_param_ptr_->avoiding_circle_radius,
-    current_ego_pose_, road_clearance_map, map_info);
 }
 
 #include "rclcpp_components/register_node_macro.hpp"

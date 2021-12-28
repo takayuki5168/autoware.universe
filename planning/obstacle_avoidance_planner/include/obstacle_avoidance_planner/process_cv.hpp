@@ -127,16 +127,19 @@ boost::optional<double> getDistance(
   const cv::Mat & clearance_map, const geometry_msgs::msg::Point & map_point,
   const nav_msgs::msg::MapMetaData & map_info);
 
-boost::optional<int> getStopIdxFromFootprint(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
+bool isOutsideDrivableArea(const geometry_msgs::msg::Point & pos,
+                           const cv::Mat & road_clearance_map,
+                           const nav_msgs::msg::MapMetaData & map_info, const double max_dist);
+
+bool isOutsideDrivableAreaFromRectangleFootprint(
+  const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
+  const cv::Mat & road_clearance_map,
   const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param);
 
-boost::optional<int> getStopIdxFromCircles(
-  const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
-  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius,
-  const geometry_msgs::msg::Pose & ego_pose, const cv::Mat & road_clearance_map,
-  const nav_msgs::msg::MapMetaData & map_info);
+bool isOutsideDrivableAreaFromCirclesFootprint(
+  const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
+  const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info,
+  const std::vector<double> avoiding_circle_offsets, const double avoiding_circle_radius);
 
 CVMaps getMaps(
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
