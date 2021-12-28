@@ -530,7 +530,7 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
 
   const double total_ms = stop_watch.toc() * 1000.0;
   RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), true, // is_showing_debug_info_, TODO(murooka)
     "total:= %f [ms]\n==========================", total_ms);
   return output;
 }

@@ -178,7 +178,7 @@ private:
   bool is_showing_debug_info_;
 
   // constraint type for avoidance: 0.soft, 1.hard, 2.soft + hard
-  const bool is_fixed_points_ = true;
+  const bool is_fixed_points_ = false; //true;
   const bool is_hard_steer_limit_ = true;
 
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
@@ -190,6 +190,9 @@ private:
 
   geometry_msgs::msg::Pose current_pose_;
   double current_vel_;
+
+  int prev_mat_m = 0;
+  int prev_mat_n = 0;
 
   std::vector<ReferencePoint> getReferencePoints(
     const geometry_msgs::msg::Pose & begin_smoothed_point,
