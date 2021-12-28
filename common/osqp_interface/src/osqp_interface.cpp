@@ -216,7 +216,6 @@ int64_t OSQPInterface::initializeProblem(
   float64_t * l_dyn = l_tmp.data();
   float64_t * u_dyn = u_tmp.data();
 
-
   m_param_n = static_cast<int>(q.size());// P.rows();
 
   m_data->m = static_cast<int>(l.size()); //A.rows();

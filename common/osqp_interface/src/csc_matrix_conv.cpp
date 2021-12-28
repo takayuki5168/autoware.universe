@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "osqp_interface/csc_matrix_conv.hpp"
+#include "rclcpp/rclcpp.hpp"
 
 #include "eigen3/Eigen/Core"
 #include "eigen3/Eigen/SparseCore"
@@ -46,13 +47,54 @@ CSC_Matrix calCSCMatrix(const Eigen::MatrixXd & mat)
 
   col_idxs.push_back(0);
 
+  int cnt = 0;
   for (Eigen::Index j = 0; j < cols; j++) {    // col iteration
     for (Eigen::Index i = 0; i < rows; i++) {  // row iteration
       // Get values of nonzero elements
       val = mat(i, j);
       if (std::fabs(val) < 1e-9) {
+        cnt++;
         continue;
       }
+      elem_count += 1;
+
+      // Store values
+      vals.push_back(val);
+      row_idxs.push_back(i);
+    }
+
+    col_idxs.push_back(elem_count);
+  }
+  // RCLCPP_ERROR_STREAM(rclcpp::get_logger("trapezoidal"), cnt << " " << cols * rows);
+
+  CSC_Matrix csc_matrix = {vals, row_idxs, col_idxs};
+
+  return csc_matrix;
+}
+
+CSC_Matrix calFullCSCMatrix(const Eigen::MatrixXd & mat)
+{
+  const size_t elem = static_cast<size_t>(mat.nonZeros());
+  const Eigen::Index rows = mat.rows();
+  const Eigen::Index cols = mat.cols();
+
+  std::vector<c_float> vals;
+  vals.reserve(elem);
+  std::vector<c_int> row_idxs;
+  row_idxs.reserve(elem);
+  std::vector<c_int> col_idxs;
+  col_idxs.reserve(elem);
+
+  // Construct CSC matrix arrays
+  c_float val;
+  c_int elem_count = 0;
+
+  col_idxs.push_back(0);
+
+  for (Eigen::Index j = 0; j < cols; j++) {    // col iteration
+    for (Eigen::Index i = 0; i < rows; i++) {  // row iteration
+      // Get values of nonzero elements
+      val = mat(i, j);
       elem_count += 1;
 
       // Store values
@@ -92,11 +134,13 @@ CSC_Matrix calCSCMatrixTrapezoidal(const Eigen::MatrixXd & mat)
 
   col_idxs.push_back(0);
 
+  int cnt = 0;
   for (Eigen::Index j = 0; j < cols; j++) {              // col iteration
     for (Eigen::Index i = 0; i <= trap_last_idx; i++) {  // row iteration
       // Get values of nonzero elements
       val = mat(i, j);
       if (std::fabs(val) < 1e-9) {
+        cnt++;
         continue;
       }
       elem_count += 1;
@@ -109,41 +153,39 @@ CSC_Matrix calCSCMatrixTrapezoidal(const Eigen::MatrixXd & mat)
     col_idxs.push_back(elem_count);
     trap_last_idx += 1;
   }
+  // RCLCPP_ERROR_STREAM(rclcpp::get_logger("trapezoidal"), cnt << " " << cols * rows);
 
   CSC_Matrix csc_matrix = {vals, row_idxs, col_idxs};
 
   return csc_matrix;
 }
 
-CSC_Matrix calcLowerTriangularCSCMatrix(
-  const int row_start_idx, const int zero_mat_row_size, const int zero_mat_col_size,
-  const Eigen::MatrixXd & mat)
+CSC_Matrix calFullCSCMatrixTrapezoidal(const Eigen::MatrixXd & mat)
 {
-  // const size_t elem;
+  const size_t elem = static_cast<size_t>(mat.nonZeros());
   const Eigen::Index rows = mat.rows();
   const Eigen::Index cols = mat.cols();
 
+  if (rows != cols) {
+    throw std::invalid_argument("Matrix must be square (n, n)");
+  }
+
   std::vector<c_float> vals;
-  // vals.reserve(elem);
+  vals.reserve(elem);
   std::vector<c_int> row_idxs;
-  // row_idxs.reserve(elem);
+  row_idxs.reserve(elem);
   std::vector<c_int> col_idxs;
-  // col_idxs.reserve(elem);
+  col_idxs.reserve(elem);
 
   // Construct CSC matrix arrays
   c_float val;
+  Eigen::Index trap_last_idx = 0;
   c_int elem_count = 0;
 
   col_idxs.push_back(0);
 
-  for (Eigen::Index j = 0; j < cols; j++) {    // col iteration
-    // for (Eigen::Index i = row_start_idx; i < rows; i++) {  // row iteration
-    for (Eigen::Index i = 0; i < rows; i++) {  // row iteration
-      const Eigen::Index col_block_idx =
-        static_cast<Eigen::Index>(std::floor(static_cast<double>(j) / zero_mat_col_size));
-      if (i < row_start_idx + col_block_idx * zero_mat_row_size) {
-        // continue;
-      }
+  for (Eigen::Index j = 0; j < cols; j++) {              // col iteration
+    for (Eigen::Index i = 0; i <= trap_last_idx; i++) {  // row iteration
       // Get values of nonzero elements
       val = mat(i, j);
       elem_count += 1;
@@ -154,6 +196,7 @@ CSC_Matrix calcLowerTriangularCSCMatrix(
     }
 
     col_idxs.push_back(elem_count);
+    trap_last_idx += 1;
   }
 
   CSC_Matrix csc_matrix = {vals, row_idxs, col_idxs};

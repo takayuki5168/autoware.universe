@@ -40,11 +40,11 @@ struct OSQP_INTERFACE_PUBLIC CSC_Matrix
 
 /// \brief Calculate CSC matrix from Eigen matrix
 OSQP_INTERFACE_PUBLIC CSC_Matrix calCSCMatrix(const Eigen::MatrixXd & mat);
+OSQP_INTERFACE_PUBLIC CSC_Matrix calFullCSCMatrix(const Eigen::MatrixXd & mat);
 /// \brief Calculate upper trapezoidal CSC matrix from square Eigen matrix
 OSQP_INTERFACE_PUBLIC CSC_Matrix calCSCMatrixTrapezoidal(const Eigen::MatrixXd & mat);
-OSQP_INTERFACE_PUBLIC CSC_Matrix calcLowerTriangularCSCMatrix(
-  const int row_start_idx, const int zero_mat_row_size, const int zero_mat_col_size,
-  const Eigen::MatrixXd & mat);
+OSQP_INTERFACE_PUBLIC CSC_Matrix calFullCSCMatrixTrapezoidal(const Eigen::MatrixXd & mat);
+
 /// \brief Print the given CSC matrix to the standard output
 OSQP_INTERFACE_PUBLIC void printCSCMatrix(const CSC_Matrix & csc_mat);
 
