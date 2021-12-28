@@ -63,6 +63,7 @@ public:
   /// \brief Constructor without problem formulation
   explicit OSQPInterface(
     const c_float eps_abs = std::numeric_limits<c_float>::epsilon(), const bool8_t polish = true);
+
   /// \brief Constructor with problem setup
   /// \param P: (n,n) matrix defining relations between parameters.
   /// \param A: (m,n) matrix defining parameter constraints relative to the lower and upper bound.
@@ -73,6 +74,11 @@ public:
   OSQPInterface(
     const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
     const std::vector<float64_t> & l, const std::vector<float64_t> & u, const c_float eps_abs);
+  OSQPInterface(
+    const CSC_Matrix & P, const CSC_Matrix & A, const std::vector<float64_t> & q,
+    const std::vector<float64_t> & l, const std::vector<float64_t> & u,
+    const c_float eps_abs);
+
   ~OSQPInterface();
 
   /****************
@@ -124,9 +130,13 @@ public:
   /// \param q (n) vector defining the linear cost of the problem.
   /// \param l (m) vector defining the lower bound problem constraint.
   /// \param u (m) vector defining the upper bound problem constraint.
-  int64_t initializeProblem(
-    const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
-    const std::vector<float64_t> & l, const std::vector<float64_t> & u);
+int64_t initializeProblem(
+  const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
+  const std::vector<float64_t> & l, const std::vector<float64_t> & u);
+
+int64_t initializeProblem(
+  CSC_Matrix P, CSC_Matrix A, const std::vector<float64_t> & q,
+  const std::vector<float64_t> & l, const std::vector<float64_t> & u);
 
   // Updates problem parameters while keeping solution in memory.
   //
@@ -137,7 +147,9 @@ public:
   //   l_new: (m) vector defining the lower bound problem constraint.
   //   u_new: (m) vector defining the upper bound problem constraint.
   void updateP(const Eigen::MatrixXd & P_new);
+  void updateCscP(const CSC_Matrix & P_csc);
   void updateA(const Eigen::MatrixXd & A_new);
+  void updateCscA(const CSC_Matrix & A_csc);
   void updateQ(const std::vector<double> & q_new);
   void updateL(const std::vector<double> & l_new);
   void updateU(const std::vector<double> & u_new);
