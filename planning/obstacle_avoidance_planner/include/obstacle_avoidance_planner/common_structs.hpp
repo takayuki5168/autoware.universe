@@ -54,7 +54,7 @@ struct UtilRectangle
   int area = 0;
 };
 
-struct ConstrainParam
+struct EBParam
 {
   bool is_getting_constraints_close2path_points;
   double clearance_for_fixing;

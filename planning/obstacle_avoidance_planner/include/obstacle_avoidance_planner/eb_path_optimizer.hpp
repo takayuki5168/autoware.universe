@@ -94,7 +94,7 @@ private:
 
   const QPParam qp_param_;
   const TrajectoryParam traj_param_;
-  const ConstrainParam constrain_param_;
+  const EBParam constrain_param_;
   const VehicleParam vehicle_param_;
 
   Eigen::MatrixXd default_a_matrix_;
@@ -307,7 +307,7 @@ private:
 public:
   EBPathOptimizer(
     const bool is_showing_debug_info, const QPParam & qp_param, const TrajectoryParam & traj_param,
-    const ConstrainParam & constrain_param, const VehicleParam & vehicle_param);
+    const EBParam & constrain_param, const VehicleParam & vehicle_param);
 
   boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>> getEBTrajectory(
     const bool enable_avoidance, const geometry_msgs::msg::Pose & ego_pose,
