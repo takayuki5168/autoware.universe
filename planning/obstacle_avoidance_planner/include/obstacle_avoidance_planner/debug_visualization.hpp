@@ -26,6 +26,7 @@
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -37,8 +38,7 @@ namespace debug_visualization
 visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
   const std::shared_ptr<DebugData> debug_data_ptr,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points,
-  const VehicleParam & vehicle_param,
-  const bool is_showing_debug_detail);
+  const VehicleParam & vehicle_param, const bool is_showing_debug_detail);
 
 nav_msgs::msg::OccupancyGrid getDebugCostmap(
   const cv::Mat & clearance_map, const nav_msgs::msg::OccupancyGrid & occupancy_grid);

@@ -15,9 +15,9 @@
 #ifndef OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 #define OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 
-#include "rclcpp/rclcpp.hpp"
 #include "opencv2/core.hpp"
 #include "opencv2/opencv.hpp"
+#include "rclcpp/rclcpp.hpp"
 
 #include "autoware_auto_perception_msgs/msg/predicted_object.hpp"
 #include "autoware_auto_planning_msgs/msg/trajectory_point.hpp"
@@ -25,6 +25,8 @@
 
 #include <boost/optional.hpp>
 
+#include <memory>
+#include <string>
 #include <vector>
 
 struct ReferencePoint;
@@ -108,7 +110,7 @@ struct DebugData
 {
   struct StreamWithPrint
   {
-    StreamWithPrint& operator<<(const std::string& s)
+    StreamWithPrint & operator<<(const std::string & s)
     {
       tmp_ss << s;
       if (s.back() == '\n') {
@@ -121,16 +123,13 @@ struct DebugData
       return *this;
     }
 
-    StreamWithPrint& operator<<(const double d)
+    StreamWithPrint & operator<<(const double d)
     {
       tmp_ss << d;
       return *this;
     }
 
-    std::string getString() const
-    {
-      return str;
-    }
+    std::string getString() const { return str; }
 
     bool is_showing_calculation_time;
     std::string str = "\n";

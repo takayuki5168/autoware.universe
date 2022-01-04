@@ -25,6 +25,7 @@
 
 #include "boost/optional/optional_fwd.hpp"
 
+#include <memory>
 #include <vector>
 
 namespace util
@@ -127,14 +128,14 @@ boost::optional<double> getDistance(
   const cv::Mat & clearance_map, const geometry_msgs::msg::Point & map_point,
   const nav_msgs::msg::MapMetaData & map_info);
 
-bool isOutsideDrivableArea(const geometry_msgs::msg::Point & pos,
-                           const cv::Mat & road_clearance_map,
-                           const nav_msgs::msg::MapMetaData & map_info, const double max_dist);
+bool isOutsideDrivableArea(
+  const geometry_msgs::msg::Point & pos, const cv::Mat & road_clearance_map,
+  const nav_msgs::msg::MapMetaData & map_info, const double max_dist);
 
 bool isOutsideDrivableAreaFromRectangleFootprint(
   const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
-  const cv::Mat & road_clearance_map,
-  const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param);
+  const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info,
+  const VehicleParam & vehicle_param);
 
 bool isOutsideDrivableAreaFromCirclesFootprint(
   const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,

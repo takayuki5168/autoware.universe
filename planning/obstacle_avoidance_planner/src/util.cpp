@@ -857,8 +857,7 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> concatTraj(
 {
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> trajectory;
   trajectory.insert(trajectory.end(), traj_points.begin(), traj_points.end());
-  trajectory.insert(
-    trajectory.end(), extended_traj_points.begin(), extended_traj_points.end());
+  trajectory.insert(trajectory.end(), extended_traj_points.begin(), extended_traj_points.end());
   return trajectory;
 }
 
@@ -906,8 +905,7 @@ void logOSQPSolutionStatus(const int solution_status)
     RCLCPP_WARN(
       rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_SOLVED_INACCURATE");
   } else if (solution_status == LOCAL_OSQP_MAX_ITER_REACHED) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_ITER_REACHED");
+    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_ITER_REACHED");
   } else if (solution_status == LOCAL_OSQP_PRIMAL_INFEASIBLE) {
     RCLCPP_WARN(
       rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_PRIMAL_INFEASIBLE");
@@ -920,7 +918,8 @@ void logOSQPSolutionStatus(const int solution_status)
       rclcpp::get_logger("util"), "[Avoidance] Interrupted by user, process will be finished.");
     std::exit(0);
   } else if (solution_status == LOCAL_OSQP_TIME_LIMIT_REACHED) {
-    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_TIME_LIMIT_REACHED");
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_TIME_LIMIT_REACHED");
   } else if (solution_status == LOCAL_OSQP_UNSOLVED) {
     RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_UNSOLVED");
   } else if (solution_status == LOCAL_OSQP_NON_CVX) {

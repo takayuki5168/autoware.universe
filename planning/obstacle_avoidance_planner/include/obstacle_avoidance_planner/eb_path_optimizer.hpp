@@ -18,6 +18,7 @@
 #include "eigen3/Eigen/Core"
 #include "obstacle_avoidance_planner/common_structs.hpp"
 #include "osqp_interface/osqp_interface.hpp"
+#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "autoware_auto_planning_msgs/msg/path.hpp"
 #include "autoware_auto_planning_msgs/msg/path_point.hpp"
@@ -25,7 +26,6 @@
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "nav_msgs/msg/map_meta_data.hpp"
-#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "boost/optional.hpp"
 
@@ -103,7 +103,9 @@ private:
   std::unique_ptr<autoware::common::osqp::OSQPInterface> ex_osqp_solver_ptr_;
   std::unique_ptr<autoware::common::osqp::OSQPInterface> vis_osqp_solver_ptr_;
 
-  mutable tier4_autoware_utils::StopWatch<std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock> stop_watch_;
+  mutable tier4_autoware_utils::StopWatch<
+    std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock>
+    stop_watch_;
 
   void initializeSolver();
 
@@ -198,13 +200,15 @@ private:
 
   boost::optional<std::vector<ConstrainRectangle>> getValidConstrainRectangles(
     const std::vector<ConstrainRectangle> & constrains,
-    const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const;
+    const std::vector<ConstrainRectangle> & only_smooth_constrains,
+    std::shared_ptr<DebugData> debug_data_ptr) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectanglesClose2PathPoints(
     const bool is_using_only_smooth_constrain, const bool is_using_road_constrain,
     const std::vector<ConstrainRectangle> & object_constrains,
     const std::vector<ConstrainRectangle> & road_constrains,
-    const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const;
+    const std::vector<ConstrainRectangle> & only_smooth_constrains,
+    std::shared_ptr<DebugData> debug_data_ptr) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectanglesWithinArea(
     const bool is_using_only_smooth_constrain, const bool is_using_road_constrain,
