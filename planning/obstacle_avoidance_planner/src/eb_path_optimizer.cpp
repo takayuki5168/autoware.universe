@@ -26,7 +26,7 @@
 
 EBPathOptimizer::EBPathOptimizer(
   const bool is_showing_debug_info, const QPParam & qp_param, const TrajectoryParam & traj_param,
-  const ConstrainParam & constrain_param, const VehicleParam & vehicle_param)
+  const EBParam & constrain_param, const VehicleParam & vehicle_param)
 : is_showing_debug_info_(is_showing_debug_info),
   epsilon_(1e-8),
   qp_param_(qp_param),

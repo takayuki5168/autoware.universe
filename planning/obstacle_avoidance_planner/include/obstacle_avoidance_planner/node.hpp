@@ -76,7 +76,7 @@ private:
   // params
   std::unique_ptr<QPParam> qp_param_ptr_;
   std::unique_ptr<TrajectoryParam> traj_param_ptr_;
-  std::unique_ptr<ConstrainParam> constrain_param_ptr_;
+  std::unique_ptr<EBParam> constrain_param_ptr_;
   std::unique_ptr<VehicleParam> vehicle_param_ptr_;
   std::unique_ptr<MPTParam> mpt_param_ptr_;
   int visualize_sampling_num_;
@@ -149,7 +149,7 @@ private:
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generateOptimizedTrajectory(
     const autoware_auto_planning_msgs::msg::Path & input_path);
 
-  Trajectories calcTrajectories(
+  Trajectories optimizeTrajectory(
     const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps);
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
@@ -164,7 +164,7 @@ private:
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const VehicleParam & vehicle_param);
 
-  void calcTrajectoryInsideDrivableArea(
+  void insertZeroVelocityOutsideDrivableArea(
     std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const CVMaps & cv_maps);
 
