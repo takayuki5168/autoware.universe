@@ -713,8 +713,7 @@ namespace debug_visualization
 visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
   const std::shared_ptr<DebugData> debug_data_ptr,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points,
-  const VehicleParam & vehicle_param,
-  const bool is_showing_debug_detail)
+  const VehicleParam & vehicle_param, const bool is_showing_debug_detail)
 {
   // virtual wall
   visualization_msgs::msg::MarkerArray vis_marker_array;
@@ -785,8 +784,8 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
   // lateral error line
   appendMarkerArray(
     getLateralErrorsLineMarkerArray(
-      debug_data_ptr->mpt_ref_poses, debug_data_ptr->lateral_errors, debug_data_ptr->visualize_sampling_num,
-      "lateral_errors", 0.1, 0.1, 0.8),
+      debug_data_ptr->mpt_ref_poses, debug_data_ptr->lateral_errors,
+      debug_data_ptr->visualize_sampling_num, "lateral_errors", 0.1, 0.1, 0.8),
     &vis_marker_array);
 
   // current vehicle circles
@@ -799,8 +798,9 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
   // vehicle circles
   appendMarkerArray(
     getVehicleCirclesMarkerArray(
-      debug_data_ptr->mpt_traj, debug_data_ptr->avoiding_circle_offsets, debug_data_ptr->avoiding_circle_radius,
-      debug_data_ptr->visualize_sampling_num, "vehicle_circles", 1.0, 0.3, 0.3),
+      debug_data_ptr->mpt_traj, debug_data_ptr->avoiding_circle_offsets,
+      debug_data_ptr->avoiding_circle_radius, debug_data_ptr->visualize_sampling_num,
+      "vehicle_circles", 1.0, 0.3, 0.3),
     &vis_marker_array);
 
   return vis_marker_array;
@@ -809,7 +809,7 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
 nav_msgs::msg::OccupancyGrid getDebugCostmap(
   const cv::Mat & clearance_map, const nav_msgs::msg::OccupancyGrid & occupancy_grid)
 {
-  if(clearance_map.empty()) return nav_msgs::msg::OccupancyGrid();
+  if (clearance_map.empty()) return nav_msgs::msg::OccupancyGrid();
 
   cv::Mat tmp;
   clearance_map.copyTo(tmp);

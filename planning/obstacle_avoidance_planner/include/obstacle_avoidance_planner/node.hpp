@@ -21,7 +21,6 @@
 #include "rclcpp/clock.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tier4_autoware_utils/ros/self_pose_listener.hpp"
-#include "tier4_debug_msgs/msg/string_stamped.hpp"
 #include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "autoware_auto_perception_msgs/msg/predicted_objects.hpp"
@@ -36,6 +35,7 @@
 #include "nav_msgs/msg/map_meta_data.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "tier4_debug_msgs/msg/string_stamped.hpp"
 #include "tier4_planning_msgs/msg/enable_avoidance.hpp"
 #include "tier4_planning_msgs/msg/is_avoidance_possible.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -83,7 +83,9 @@ private:
 
   // debug
   mutable std::shared_ptr<DebugData> debug_data_ptr_;
-  mutable tier4_autoware_utils::StopWatch<std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock> stop_watch_;
+  mutable tier4_autoware_utils::StopWatch<
+    std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock>
+    stop_watch_;
 
   geometry_msgs::msg::Pose current_ego_pose_;
   std::unique_ptr<geometry_msgs::msg::TwistStamped> current_twist_ptr_;
@@ -94,7 +96,6 @@ private:
 
   std::unique_ptr<rclcpp::Time> prev_replanned_time_ptr_;
   tier4_autoware_utils::SelfPoseListener self_pose_listener_{this};
-
 
   // ROS
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr traj_pub_;
@@ -117,7 +118,6 @@ private:
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_object_clearance_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_area_with_objects_pub_;
   rclcpp::Publisher<tier4_debug_msgs::msg::StringStamped>::SharedPtr debug_msg_pub_;
-
 
   rclcpp::Subscription<autoware_auto_planning_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;

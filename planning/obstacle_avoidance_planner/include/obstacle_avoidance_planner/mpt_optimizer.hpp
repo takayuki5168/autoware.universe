@@ -178,7 +178,7 @@ private:
   bool is_showing_debug_info_;
 
   // constraint type for avoidance: 0.soft, 1.hard, 2.soft + hard
-  const bool is_fixed_points_ = false; // true; // TODO(murooka)
+  const bool is_fixed_points_ = false;  // true; // TODO(murooka)
   const bool is_hard_steer_limit_ = true;
 
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
@@ -194,7 +194,9 @@ private:
   int prev_mat_n = 0;
   int prev_mat_m = 0;
 
-  mutable tier4_autoware_utils::StopWatch<std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock> stop_watch_;
+  mutable tier4_autoware_utils::StopWatch<
+    std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock>
+    stop_watch_;
 
   std::vector<ReferencePoint> getReferencePoints(
     const geometry_msgs::msg::Pose & begin_smoothed_point,
@@ -218,8 +220,8 @@ private:
     std::shared_ptr<DebugData> debug_data_ptr) const;
 
   void calcVehicleBounds(
-    std::vector<ReferencePoint> & ref_points, const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr,
-    const bool enable_avoidance) const;
+    std::vector<ReferencePoint> & ref_points, const CVMaps & maps,
+    std::shared_ptr<DebugData> debug_data_ptr, const bool enable_avoidance) const;
 
   // void calcFixState(
   // std::vector<ReferencePoint> & ref_points,
@@ -256,7 +258,8 @@ private:
 
   boost::optional<Eigen::VectorXd> executeOptimization(
     const bool enable_avoidance, const MPTMatrix & m,
-    const std::vector<ReferencePoint> & ref_points, const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr);
+    const std::vector<ReferencePoint> & ref_points, const CVMaps & maps,
+    std::shared_ptr<DebugData> debug_data_ptr);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getMPTPoints(
     std::vector<ReferencePoint> & fixed_ref_points,
@@ -291,7 +294,8 @@ private:
 
   ConstraintMatrix getConstraintMatrix(
     const bool enable_avoidance, const MPTMatrix & m, const CVMaps & maps,
-    const std::vector<ReferencePoint> & ref_points, std::shared_ptr<DebugData> debug_data_ptr) const;
+    const std::vector<ReferencePoint> & ref_points,
+    std::shared_ptr<DebugData> debug_data_ptr) const;
 
 public:
   MPTOptimizer(
@@ -304,7 +308,8 @@ public:
     const bool enable_avoidance,
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & smoothed_points,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr);
+    const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & maps,
+    std::shared_ptr<DebugData> debug_data_ptr);
 };
 
 #endif  // OBSTACLE_AVOIDANCE_PLANNER__MPT_OPTIMIZER_HPP_

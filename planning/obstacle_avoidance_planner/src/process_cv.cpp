@@ -630,9 +630,9 @@ cv::Mat getAreaWithObjects(const cv::Mat & drivable_area, const cv::Mat & object
   return area_with_objects;
 }
 
-bool isOutsideDrivableArea(const geometry_msgs::msg::Point & pos,
-                           const cv::Mat & road_clearance_map,
-                           const nav_msgs::msg::MapMetaData & map_info, const double max_dist)
+bool isOutsideDrivableArea(
+  const geometry_msgs::msg::Point & pos, const cv::Mat & road_clearance_map,
+  const nav_msgs::msg::MapMetaData & map_info, const double max_dist)
 {
   const auto dist = getDistance(road_clearance_map, pos, map_info);
   if (dist) {
@@ -644,31 +644,31 @@ bool isOutsideDrivableArea(const geometry_msgs::msg::Point & pos,
 
 bool isOutsideDrivableAreaFromRectangleFootprint(
   const autoware_auto_planning_msgs::msg::TrajectoryPoint & traj_point,
-  const cv::Mat & road_clearance_map,
-  const nav_msgs::msg::MapMetaData & map_info, const VehicleParam & vehicle_param)
+  const cv::Mat & road_clearance_map, const nav_msgs::msg::MapMetaData & map_info,
+  const VehicleParam & vehicle_param)
 {
   const double half_width = vehicle_param.width / 2.0;
   const double base_to_front = vehicle_param.length - vehicle_param.rear_overhang;
   const double base_to_rear = vehicle_param.rear_overhang;
 
   const auto top_left_pos =
-    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, -half_width, 0.0)
-    .position;
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, -half_width, 0.0).position;
   const auto top_right_pos =
-    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, half_width, 0.0)
-    .position;
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, base_to_front, half_width, 0.0).position;
   const auto bottom_right_pos =
-    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, half_width, 0.0)
-    .position;
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, half_width, 0.0).position;
   const auto bottom_left_pos =
-    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, -half_width, 0.0)
-    .position;
+    tier4_autoware_utils::calcOffsetPose(traj_point.pose, -base_to_rear, -half_width, 0.0).position;
 
   constexpr double epsilon = 1e-8;
-  const bool out_top_left = isOutsideDrivableArea(top_left_pos, road_clearance_map, map_info, epsilon);
-  const bool out_top_right = isOutsideDrivableArea(top_right_pos, road_clearance_map, map_info, epsilon);
-  const bool out_bottom_left = isOutsideDrivableArea(bottom_left_pos, road_clearance_map, map_info, epsilon);
-  const bool out_bottom_right = isOutsideDrivableArea(bottom_right_pos, road_clearance_map, map_info, epsilon);
+  const bool out_top_left =
+    isOutsideDrivableArea(top_left_pos, road_clearance_map, map_info, epsilon);
+  const bool out_top_right =
+    isOutsideDrivableArea(top_right_pos, road_clearance_map, map_info, epsilon);
+  const bool out_bottom_left =
+    isOutsideDrivableArea(bottom_left_pos, road_clearance_map, map_info, epsilon);
+  const bool out_bottom_right =
+    isOutsideDrivableArea(bottom_right_pos, road_clearance_map, map_info, epsilon);
 
   if (out_top_left || out_top_right || out_bottom_left || out_bottom_right) {
     return true;
@@ -686,7 +686,8 @@ bool isOutsideDrivableAreaFromCirclesFootprint(
     const auto avoiding_pos =
       tier4_autoware_utils::calcOffsetPose(traj_point.pose, offset, 0.0, 0.0).position;
 
-    const bool outside_drivable_area = isOutsideDrivableArea(avoiding_pos, road_clearance_map, map_info, avoiding_circle_radius);
+    const bool outside_drivable_area =
+      isOutsideDrivableArea(avoiding_pos, road_clearance_map, map_info, avoiding_circle_radius);
     if (outside_drivable_area) {
       return true;
     }
@@ -721,31 +722,26 @@ CVMaps getMaps(
 
   stop_watch.tic();
   cv_maps.drivable_area = getDrivableAreaInCV(path.drivable_area);
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " <<
-    stop_watch.toc() << " [ms]\n";
+  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc() << " [ms]\n";
 
   stop_watch.tic();
   cv_maps.clearance_map = getClearanceMap(cv_maps.drivable_area);
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " <<
-    stop_watch.toc() << " [ms]\n";
+  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc() << " [ms]\n";
 
   stop_watch.tic();
   std::vector<autoware_auto_perception_msgs::msg::PredictedObject> debug_avoiding_objects;
   cv::Mat objects_image = drawObstaclesOnImage(
     enable_avoidance, objects, path.points, path.drivable_area.info, cv_maps.drivable_area,
     cv_maps.clearance_map, traj_param, &debug_avoiding_objects);
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " <<
-    stop_watch.toc() << " [ms]\n";
+  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc() << " [ms]\n";
 
   stop_watch.tic();
   cv_maps.area_with_objects_map = getAreaWithObjects(cv_maps.drivable_area, objects_image);
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " <<
-    stop_watch.toc() << " [ms]\n";
+  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc() << " [ms]\n";
 
   stop_watch.tic();
   cv_maps.only_objects_clearance_map = getClearanceMap(objects_image);
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " <<
-    stop_watch.toc() << " [ms]\n";
+  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc() << " [ms]\n";
 
   cv_maps.map_info = path.drivable_area.info;
 
@@ -754,8 +750,8 @@ CVMaps getMaps(
   debug_data_ptr->area_with_objects_map = cv_maps.area_with_objects_map;
   debug_data_ptr->avoiding_objects = debug_avoiding_objects;
 
-  debug_data_ptr->msg_stream << "      " << __func__ << ":= " <<
-    stop_watch.toc(__func__) << " [ms]\n";
+  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch.toc(__func__)
+                             << " [ms]\n";
   return cv_maps;
 }
 }  // namespace process_cv
