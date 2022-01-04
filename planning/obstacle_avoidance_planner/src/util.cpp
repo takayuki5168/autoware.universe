@@ -862,53 +862,6 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> concatTraj(
   return trajectory;
 }
 
-void logOSQPSolutionStatus(const int solution_status)
-{
-  /******************
-   * Solver Status  *
-   ******************/
-  const int LOCAL_OSQP_DUAL_INFEASIBLE_INACCURATE = 4;
-  const int LOCAL_OSQP_PRIMAL_INFEASIBLE_INACCURATE = 3;
-  const int LOCAL_OSQP_SOLVED_INACCURATE = 2;
-  const int LOCAL_OSQP_SOLVED = 1;
-  const int LOCAL_OSQP_MAX_ITER_REACHED = -2;
-  const int LOCAL_OSQP_PRIMAL_INFEASIBLE = -3; /* primal infeasible  */
-  const int LOCAL_OSQP_DUAL_INFEASIBLE = -4;   /* dual infeasible */
-  const int LOCAL_OSQP_SIGINT = -5;            /* interrupted by user */
-
-  if (solution_status == LOCAL_OSQP_SOLVED) {
-  } else if (solution_status == LOCAL_OSQP_DUAL_INFEASIBLE_INACCURATE) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"),
-      "[Avoidance] OSQP solution status: LOCAL_OSQP_DUAL_INFEASIBLE_INACCURATE");
-  } else if (solution_status == LOCAL_OSQP_PRIMAL_INFEASIBLE_INACCURATE) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"),
-      "[Avoidance] OSQP solution status: LOCAL_OSQP_PRIMAL_INFEASIBLE_INACCURATE");
-  } else if (solution_status == LOCAL_OSQP_SOLVED_INACCURATE) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: LOCAL_OSQP_SOLVED_INACCURATE");
-  } else if (solution_status == LOCAL_OSQP_MAX_ITER_REACHED) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: LOCAL_OSQP_ITER_REACHED");
-  } else if (solution_status == LOCAL_OSQP_PRIMAL_INFEASIBLE) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: LOCAL_OSQP_PRIMAL_INFEASIBLE");
-  } else if (solution_status == LOCAL_OSQP_DUAL_INFEASIBLE) {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: LOCAL_OSQP_DUAL_INFEASIBLE");
-  } else if (solution_status == LOCAL_OSQP_SIGINT) {
-    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: LOCAL_OSQP_SIGINT");
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] Interrupted by user, process will be finished.");
-    std::exit(0);
-  } else {
-    RCLCPP_WARN(
-      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: Not defined %d",
-      solution_status);
-  }
-}
-
 void compensateLastPose(
   const autoware_auto_planning_msgs::msg::PathPoint & last_path_point,
   const TrajectoryParam & traj_param,
@@ -920,6 +873,62 @@ void compensateLastPose(
     traj_param.max_dist_for_extending_end_point);
   if (extended_point_opt) {
     traj_points.push_back(extended_point_opt.get());
+  }
+}
+
+void logOSQPSolutionStatus(const int solution_status)
+{
+  /******************
+   * Solver Status  *
+   ******************/
+  const int LOCAL_OSQP_SOLVED = 1;
+  const int LOCAL_OSQP_SOLVED_INACCURATE = 2;
+  const int LOCAL_OSQP_MAX_ITER_REACHED = -2;
+  const int LOCAL_OSQP_PRIMAL_INFEASIBLE = -3;
+  const int LOCAL_OSQP_PRIMAL_INFEASIBLE_INACCURATE = 3;
+  const int LOCAL_OSQP_DUAL_INFEASIBLE = -4;
+  const int LOCAL_OSQP_DUAL_INFEASIBLE_INACCURATE = 4;
+  const int LOCAL_OSQP_SIGINT = -5;
+  const int LOCAL_OSQP_TIME_LIMIT_REACHED = -6;
+  const int LOCAL_OSQP_UNSOLVED = -10;
+  const int LOCAL_OSQP_NON_CVX = -7;
+
+  if (solution_status == LOCAL_OSQP_SOLVED) {
+  } else if (solution_status == LOCAL_OSQP_DUAL_INFEASIBLE_INACCURATE) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"),
+      "[Avoidance] OSQP solution status: OSQP_DUAL_INFEASIBLE_INACCURATE");
+  } else if (solution_status == LOCAL_OSQP_PRIMAL_INFEASIBLE_INACCURATE) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"),
+      "[Avoidance] OSQP solution status: OSQP_PRIMAL_INFEASIBLE_INACCURATE");
+  } else if (solution_status == LOCAL_OSQP_SOLVED_INACCURATE) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_SOLVED_INACCURATE");
+  } else if (solution_status == LOCAL_OSQP_MAX_ITER_REACHED) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_ITER_REACHED");
+  } else if (solution_status == LOCAL_OSQP_PRIMAL_INFEASIBLE) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_PRIMAL_INFEASIBLE");
+  } else if (solution_status == LOCAL_OSQP_DUAL_INFEASIBLE) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_DUAL_INFEASIBLE");
+  } else if (solution_status == LOCAL_OSQP_SIGINT) {
+    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_SIGINT");
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] Interrupted by user, process will be finished.");
+    std::exit(0);
+  } else if (solution_status == LOCAL_OSQP_TIME_LIMIT_REACHED) {
+    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_TIME_LIMIT_REACHED");
+  } else if (solution_status == LOCAL_OSQP_UNSOLVED) {
+    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_UNSOLVED");
+  } else if (solution_status == LOCAL_OSQP_NON_CVX) {
+    RCLCPP_WARN(rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: OSQP_NON_CVX");
+  } else {
+    RCLCPP_WARN(
+      rclcpp::get_logger("util"), "[Avoidance] OSQP solution status: Not defined %d",
+      solution_status);
   }
 }
 }  // namespace util

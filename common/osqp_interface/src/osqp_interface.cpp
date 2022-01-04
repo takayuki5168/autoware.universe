@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "rclcpp/rclcpp.hpp"
 #include "osqp_interface/osqp_interface.hpp"
 
 #include "osqp/osqp.h"
@@ -59,6 +60,15 @@ OSQPInterface::OSQPInterface(
   initializeProblem(P, A, q, l, u);
 }
 
+OSQPInterface::OSQPInterface(
+  const CSC_Matrix & P, const CSC_Matrix & A, const std::vector<float64_t> & q,
+  const std::vector<float64_t> & l, const std::vector<float64_t> & u,
+  const c_float eps_abs)
+: OSQPInterface(eps_abs)
+{
+  initializeProblem(P, A, q, l, u);
+}
+
 void OSQPInterface::updateP(const Eigen::MatrixXd & P_new)
 {
   /*
@@ -74,6 +84,11 @@ void OSQPInterface::updateP(const Eigen::MatrixXd & P_new)
   osqp_update_P(m_work, P_csc.m_vals.data(), OSQP_NULL, static_cast<c_int>(P_csc.m_vals.size()));
 }
 
+void OSQPInterface::updateCscP(const CSC_Matrix & P_csc)
+{
+  osqp_update_P(m_work, P_csc.m_vals.data(), OSQP_NULL, static_cast<c_int>(P_csc.m_vals.size()));
+}
+
 void OSQPInterface::updateA(const Eigen::MatrixXd & A_new)
 {
   /*
@@ -86,6 +101,11 @@ void OSQPInterface::updateA(const Eigen::MatrixXd & A_new)
   CSC_Matrix A_csc = calCSCMatrix(A_new);
   osqp_update_A(m_work, A_csc.m_vals.data(), OSQP_NULL, static_cast<c_int>(A_csc.m_vals.size()));
   return;
+}
+
+void OSQPInterface::updateCscA(const CSC_Matrix & A_csc)
+{
+  osqp_update_A(m_work, A_csc.m_vals.data(), OSQP_NULL, static_cast<c_int>(A_csc.m_vals.size()));
 }
 
 void OSQPInterface::updateQ(const std::vector<double> & q_new)
@@ -176,11 +196,15 @@ int64_t OSQPInterface::initializeProblem(
   const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
   const std::vector<float64_t> & l, const std::vector<float64_t> & u)
 {
-  /*******************
-   * SET UP MATRICES
-   *******************/
   CSC_Matrix P_csc = calCSCMatrixTrapezoidal(P);
   CSC_Matrix A_csc = calCSCMatrix(A);
+  return initializeProblem(P_csc, A_csc, q, l, u);
+}
+
+int64_t OSQPInterface::initializeProblem(
+  CSC_Matrix P_csc, CSC_Matrix A_csc, const std::vector<float64_t> & q,
+  const std::vector<float64_t> & l, const std::vector<float64_t> & u)
+{
   // Dynamic float arrays
   std::vector<float64_t> q_tmp(q.begin(), q.end());
   std::vector<float64_t> l_tmp(l.begin(), l.end());
@@ -192,15 +216,12 @@ int64_t OSQPInterface::initializeProblem(
   /**********************
    * OBJECTIVE FUNCTION
    **********************/
-  // Number of constraints
-  c_int constr_m = A.rows();
-  // Number of parameters
-  m_param_n = P.rows();
+  m_param_n = static_cast<int>(q.size());
+  m_data->m = static_cast<int>(l.size());
 
   /*****************
    * POPULATE DATA
    *****************/
-  m_data->m = constr_m;
   m_data->n = m_param_n;
   m_data->P = csc_matrix(
     m_data->n, m_data->n, static_cast<c_int>(P_csc.m_vals.size()), P_csc.m_vals.data(),
@@ -248,6 +269,8 @@ std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t> OSQ
     std::make_tuple(sol_primal, sol_lagrange_multiplier, status_polish, status_solution);
 
   m_latest_work_info = *(m_work->info);
+
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("osqp iteration"), m_work->info->iter);
 
   return result;
 }

@@ -53,6 +53,7 @@ private:
   bool is_publishing_object_clearance_map_;
   bool is_publishing_clearance_map_;
   bool is_showing_debug_info_;
+  bool is_showing_total_time_;
   bool is_using_vehicle_config_;
   bool is_stopping_if_outside_drivable_area_;
   bool enable_avoidance_;
