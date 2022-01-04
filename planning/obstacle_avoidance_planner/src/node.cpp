@@ -146,6 +146,7 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     declare_parameter("is_publishing_object_clearance_map", false);
   is_publishing_clearance_map_ = declare_parameter("is_publishing_clearance_map", false);
   is_showing_debug_info_ = declare_parameter("is_showing_debug_info", false);
+  is_showing_total_time_ = declare_parameter("is_showing_total_time", false);
   is_using_vehicle_config_ = declare_parameter("is_using_vehicle_config", false);
   is_stopping_if_outside_drivable_area_ =
     declare_parameter("is_stopping_if_outside_drivable_area", true);
@@ -539,10 +540,9 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
 
   publishDebugData(debug_data_, path, optimized_traj_points, *vehicle_param_ptr_);
-  const double total_ms = stop_watch.toc() * 1000.0;
   RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "total:= %f [ms]\n==========================", total_ms);
+    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_total_time_,
+    "total:= %f [ms]\n==========================", stop_watch.toc() * 1000.0);
   return output;
 }
 
