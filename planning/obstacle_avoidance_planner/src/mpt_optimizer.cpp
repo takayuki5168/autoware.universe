@@ -837,8 +837,8 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
       P_csc, A_csc, obj_m.gradient, const_m.lower_bound, const_m.upper_bound,
       1.0e-3);
   }
-  // prev_mat_n = obj_m.hessian.rows();
-  // prev_mat_m = const_m.linear.rows();
+  prev_mat_n = obj_m.hessian.rows();
+  prev_mat_m = const_m.linear.rows();
 
   osqp_solver_ptr_->updateEpsRel(1.0e-3);
   const double osqp_init_ms = stop_watch.toc() * 1000.0;
