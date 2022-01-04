@@ -21,6 +21,8 @@
 #include "rclcpp/clock.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tier4_autoware_utils/ros/self_pose_listener.hpp"
+#include "tier4_debug_msgs/msg/string_stamped.hpp"
+#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "autoware_auto_perception_msgs/msg/predicted_objects.hpp"
 #include "autoware_auto_planning_msgs/msg/path.hpp"
@@ -88,6 +90,9 @@ private:
   std::unique_ptr<rclcpp::Time> prev_replanned_time_ptr_;
   tier4_autoware_utils::SelfPoseListener self_pose_listener_{this};
 
+  mutable std::shared_ptr<DebugData> debug_data_;
+  mutable tier4_autoware_utils::StopWatch<std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock> stop_watch_;
+
   // ROS
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr traj_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr avoiding_traj_pub_;
@@ -108,6 +113,8 @@ private:
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_clearance_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_object_clearance_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_area_with_objects_pub_;
+  rclcpp::Publisher<tier4_debug_msgs::msg::StringStamped>::SharedPtr calculation_time_pub_;
+
   rclcpp::Subscription<autoware_auto_planning_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<autoware_auto_perception_msgs::msg::PredictedObjects>::SharedPtr
@@ -135,8 +142,7 @@ private:
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getExtendedOptimizedTrajectory(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points,
-    DebugData & debug_data);
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> generateOptimizedTrajectory(
     const autoware_auto_planning_msgs::msg::Path & input_path);
@@ -149,7 +155,7 @@ private:
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & trajectory_points) const;
 
   void publishDebugData(
-    const DebugData & debug_data, const autoware_auto_planning_msgs::msg::Path & path,
+    const autoware_auto_planning_msgs::msg::Path & path,
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
     const VehicleParam & vehicle_param);
 
@@ -168,7 +174,7 @@ private:
   boost::optional<Trajectories> calcTrajectoryInsideArea(
     const Trajectories & trajs,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const CVMaps & cv_maps, DebugData * debug_data, const bool is_prev_traj = false) const;
+    const CVMaps & cv_maps, const bool is_prev_traj = false) const;
 
   Trajectories getPrevTrajs(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;

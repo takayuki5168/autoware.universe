@@ -15,6 +15,7 @@
 #ifndef OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 #define OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 
+#include "rclcpp/rclcpp.hpp"
 #include "opencv2/core.hpp"
 #include "opencv2/opencv.hpp"
 
@@ -101,6 +102,74 @@ struct FOAData
   std::vector<ConstrainRectangle> constrain_rectangles;
 };
 
+struct StringStream
+{
+  /*
+  struct OriginalStream
+  {
+    OriginalStream& operator<<(OriginalStream& stream, const std::string s) {
+      st << s;
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), s);
+      return stream;
+    }
+
+    OriginalStream& operator<<(OriginalStream& stream, const double d) {
+      st << d;
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), d);
+      return stream;
+    }
+
+    std::stringstream st;
+  };
+  */
+  /*
+  struct OriginalStream
+  {
+    OriginalStream& operator<<(const std::string s) {
+      sstream << s;
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), s);
+      return this;
+    }
+
+    OriginalStream& operator<<(const double d) {
+      sstream << d;
+      RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), d);
+      return this;
+    }
+
+    std::stringstream sstream;
+  };
+  */
+
+  /*
+  OriginalStream& operator<<(const std::string s) {
+    stream.st << s;
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), s);
+    return stream;
+  }
+
+  OriginalStream& operator<<(const double d) {
+    stream.st << d;
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), d);
+    return stream;
+  }
+  */
+
+  //std::stringstream& operator<<(std::stringstream & st, const std::string s) {
+  //  st << s; // stream << s;
+  //  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), s);
+  //  return st;
+  //}
+  //std::ostream& operator<<(std::ostream & st, const std::string s) {
+  //  st << s; // stream << s;
+  //  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), s);
+  //  return st;
+  //}
+
+  // OriginalStream stream;
+  std::stringstream sstream;
+};
+
 struct DebugData
 {
   bool is_expected_to_over_drivable_area = false;
@@ -137,6 +206,9 @@ struct DebugData
   geometry_msgs::msg::Pose current_ego_pose;
   std::vector<double> avoiding_circle_offsets;
   double avoiding_circle_radius;
+
+  // StringStream msg_stream;
+  std::stringstream msg_stream;
 };
 
 struct Trajectories

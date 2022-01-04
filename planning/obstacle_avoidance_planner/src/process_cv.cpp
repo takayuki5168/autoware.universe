@@ -717,7 +717,7 @@ boost::optional<double> getDistance(
 CVMaps getMaps(
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const TrajectoryParam & traj_param, DebugData & debug_data, const bool is_showing_debug_info)
+  const TrajectoryParam & traj_param, std::shared_ptr<DebugData> debug_data, const bool is_showing_debug_info)
 {
   tier4_autoware_utils::StopWatch stop_watch;
   stop_watch.tic("total");
@@ -764,10 +764,10 @@ CVMaps getMaps(
 
   cv_maps.map_info = path.drivable_area.info;
 
-  debug_data.clearance_map = cv_maps.clearance_map;
-  debug_data.only_object_clearance_map = cv_maps.only_objects_clearance_map;
-  debug_data.area_with_objects_map = cv_maps.area_with_objects_map;
-  debug_data.avoiding_objects = debug_avoiding_objects;
+  debug_data->clearance_map = cv_maps.clearance_map;
+  debug_data->only_object_clearance_map = cv_maps.only_objects_clearance_map;
+  debug_data->area_with_objects_map = cv_maps.area_with_objects_map;
+  debug_data->avoiding_objects = debug_avoiding_objects;
 
   const double total_ms = stop_watch.toc("total") * 1000.0;
   RCLCPP_INFO_EXPRESSION(
