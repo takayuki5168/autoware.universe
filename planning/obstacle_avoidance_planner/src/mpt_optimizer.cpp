@@ -17,7 +17,6 @@
 #include "obstacle_avoidance_planner/util.hpp"
 #include "obstacle_avoidance_planner/vehicle_model/vehicle_model_bicycle_kinematics.hpp"
 #include "tf2/utils.h"
-#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "nav_msgs/msg/map_meta_data.hpp"
 
@@ -157,10 +156,9 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
   const bool enable_avoidance,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & smoothed_points,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-  const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & maps, DebugData & debug_data)
+  const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
   if (smoothed_points.empty()) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -178,7 +176,7 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
   // NOTE: coordinate of smoothed_points is base center
   //       coordinate of ref_points is offset forward from base link
   std::vector<ReferencePoint> full_ref_points = getReferencePoints(
-    begin_smoothed_point, smoothed_points, prev_trajs, enable_avoidance, maps, debug_data);
+    begin_smoothed_point, smoothed_points, prev_trajs, enable_avoidance, maps, debug_data_ptr);
   if (full_ref_points.empty()) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -191,7 +189,7 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
     return boost::none;
   }
 
-  debug_data.mpt_fixed_traj = getMPTFixedPoints(full_ref_points);
+  debug_data_ptr->mpt_fixed_traj = getMPTFixedPoints(full_ref_points);
 
   std::vector<ReferencePoint> fixed_ref_points;
   std::vector<ReferencePoint> non_fixed_ref_points;
@@ -217,7 +215,7 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
     }
   }
 
-  const auto mpt_matrix = generateMPTMatrix(non_fixed_ref_points, path_points.back(), prev_trajs);
+  const auto mpt_matrix = generateMPTMatrix(non_fixed_ref_points, path_points.back(), prev_trajs, debug_data_ptr);
   if (!mpt_matrix) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -226,7 +224,7 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
   }
 
   const auto optimized_control_variables =
-    executeOptimization(enable_avoidance, mpt_matrix.get(), non_fixed_ref_points, maps, debug_data);
+    executeOptimization(enable_avoidance, mpt_matrix.get(), non_fixed_ref_points, maps, debug_data_ptr);
   if (!optimized_control_variables) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
@@ -236,15 +234,14 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
 
   const auto mpt_points = getMPTPoints(
     fixed_ref_points, non_fixed_ref_points, optimized_control_variables.get(), mpt_matrix.get(),
-    debug_data);
+    debug_data_ptr);
 
   auto full_optimized_ref_points = fixed_ref_points;
   full_optimized_ref_points.insert(
     full_optimized_ref_points.end(), non_fixed_ref_points.begin(), non_fixed_ref_points.end());
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "      getModelPredictiveModelTrajectory:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr->msg_stream << "      " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 
   MPTTrajs mpt_trajs;
   mpt_trajs.mpt = mpt_points;
@@ -256,10 +253,9 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
   [[maybe_unused]] const geometry_msgs::msg::Pose & begin_smoothed_point,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
   [[maybe_unused]] const std::unique_ptr<Trajectories> & prev_trajs, const bool enable_avoidance,
-  const CVMaps & maps, DebugData & debug_data) const
+  const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   const auto ref_points = [&]() {
     // assing fixed kinematics
@@ -344,8 +340,8 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po1");
 
     // set bounds information
-    calcBounds(ref_points, enable_avoidance, maps, debug_data);
-    calcVehicleBounds(ref_points, maps, debug_data, enable_avoidance);
+    calcBounds(ref_points, enable_avoidance, maps, debug_data_ptr);
+    calcVehicleBounds(ref_points, maps, debug_data_ptr, enable_avoidance);
 
     // set extra information (alpha and has_object_collision)
     // NOTE: This must be after bounds calculation.
@@ -359,7 +355,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po3");
     */
 
-    debug_data.ref_points = ref_points;
+    debug_data_ptr->ref_points = ref_points;
 
     return ref_points;
   }();
@@ -377,10 +373,8 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
   auto truncated_points = util::clipForwardPoints(ref_points, begin_idx, ref_length);
   */
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "        getReferencePoints:= %f [ms]", stop_watch.toc() * 1000.0);
-
+  debug_data_ptr->msg_stream << "        " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return ref_points;
 }
 
@@ -564,14 +558,14 @@ void MPTOptimizer::calcExtraPoints(std::vector<ReferencePoint> & ref_points) con
 boost::optional<MPTOptimizer::MPTMatrix> MPTOptimizer::generateMPTMatrix(
   const std::vector<ReferencePoint> & ref_points,
   const autoware_auto_planning_msgs::msg::PathPoint & last_path_pose,
-  [[maybe_unused]] const std::unique_ptr<Trajectories> & prev_trajs) const
+  [[maybe_unused]] const std::unique_ptr<Trajectories> & prev_trajs,
+  std::shared_ptr<DebugData> debug_data_ptr) const
 {
   if (ref_points.empty()) {
     return MPTMatrix{};
   }
 
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   vehicle_model_ptr_->updateCenterOffset(0.0);
 
@@ -694,10 +688,8 @@ boost::optional<MPTOptimizer::MPTMatrix> MPTOptimizer::generateMPTMatrix(
     return boost::none;
   }
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "        generateMPTMatrix:= %f [ms]", stop_watch.toc() * 1000.0);
-
+  debug_data_ptr->msg_stream << "        " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return m;
 }
 
@@ -779,30 +771,18 @@ void MPTOptimizer::addSteerWeightF(Eigen::VectorXd & f) const
 
 boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   const bool enable_avoidance, const MPTMatrix & m, const std::vector<ReferencePoint> & ref_points,
-  const CVMaps & maps, DebugData & debug_data)
+  const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr)
 {
   if (ref_points.empty()) {
     return Eigen::VectorXd{};
   }
 
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic("total");
+  stop_watch_.tic(__func__);
 
-  stop_watch.tic();
-  ObjectiveMatrix obj_m = getObjectiveMatrix(m, ref_points);
-  const double get_obj_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "          getObjectiveMatrix:= %f [ms]", get_obj_ms);
+  ObjectiveMatrix obj_m = getObjectiveMatrix(m, ref_points, debug_data_ptr);
+  ConstraintMatrix const_m = getConstraintMatrix(enable_avoidance, m, maps, ref_points, debug_data_ptr);
 
-  stop_watch.tic();
-  ConstraintMatrix const_m = getConstraintMatrix(enable_avoidance, m, maps, ref_points, debug_data);
-  const double get_const_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "          getConstraintMatrix:= %f [ms]", get_const_ms);
-
-  stop_watch.tic();
+  stop_watch_.tic("initOsqp");
   autoware::common::osqp::CSC_Matrix P_csc = autoware::common::osqp::calCSCMatrixTrapezoidal(obj_m.hessian);
   autoware::common::osqp::CSC_Matrix A_csc = autoware::common::osqp::calCSCMatrix(const_m.linear);
  if (prev_mat_n == obj_m.hessian.rows() && prev_mat_m == const_m.linear.rows()) {
@@ -831,15 +811,13 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   //   1.0e-3);
   // osqp_solver_ptr_->updateEpsRel(1.0e-3);
 
-  RCLCPP_WARN_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), true, // is_showing_debug_info_,
-    "          osqp init:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr->msg_stream << "          " << "initOsqp" <<
+    ":= " << stop_watch_.toc("initOsqp")  << " [ms]\n";
 
-  stop_watch.tic();
+  stop_watch_.tic("solveOsqp");
   const auto result = osqp_solver_ptr_->optimize();
-  RCLCPP_WARN_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), true, // is_showing_debug_info_,
-    "          osqp solve:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr->msg_stream << "          " << "solveOsqp" <<
+    ":= " << stop_watch_.toc("solveOsqp")  << " [ms]\n";
 
   int solution_status = std::get<3>(result);
   if (solution_status != 1) {
@@ -855,10 +833,9 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   const Eigen::VectorXd optimized_control_variables =
     Eigen::Map<Eigen::VectorXd>(&result_vec[0], DIM_X + (N_ref - 1) * DIM_U);
 
-  const double execute_optimization_ms = stop_watch.toc("total") * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "        executeOptimization:= %f [ms]", execute_optimization_ms);
+  // TODO(murooka)
+  //debug_data_ptr->msg_stream << "        " << __func__ <<
+  //":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 
   return optimized_control_variables;
 }
@@ -887,7 +864,7 @@ Eigen::Vector2d MPTOptimizer::getState(
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::getMPTPoints(
   std::vector<ReferencePoint> & fixed_ref_points,
   std::vector<ReferencePoint> & non_fixed_ref_points, const Eigen::VectorXd & Uex,
-  const MPTMatrix & mpt_matrix, DebugData & debug_data)
+  const MPTMatrix & mpt_matrix, std::shared_ptr<DebugData> debug_data_ptr)
 {
   /*
   for (size_t i = 0; i < static_cast<size_t>(Uex.rows()); ++i) {
@@ -895,8 +872,7 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
   }
   */
 
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   std::vector<double> lat_error_vec;
   std::vector<double> yaw_error_vec;
@@ -936,7 +912,7 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
 
   // calculate trajectory from optimization result
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> traj_points;
-  debug_data.vehicle_circles_pose.resize(lat_error_vec.size());
+  debug_data_ptr->vehicle_circles_pose.resize(lat_error_vec.size());
   for (size_t i = 0; i < lat_error_vec.size(); ++i) {
     auto & ref_point = (i < fixed_ref_points.size())
                          ? fixed_ref_points.at(i)
@@ -953,8 +929,8 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
     geometry_msgs::msg::Pose ref_pose;
     ref_pose.position = ref_point.p;
     ref_pose.orientation = tier4_autoware_utils::createQuaternionFromYaw(ref_point.yaw);
-    debug_data.mpt_ref_poses.push_back(ref_pose);
-    debug_data.lateral_errors.push_back(lat_error);
+    debug_data_ptr->mpt_ref_poses.push_back(ref_pose);
+    debug_data_ptr->lateral_errors.push_back(lat_error);
 
     ref_point.optimized_kinematics << lat_error_vec.at(i), yaw_error_vec.at(i);
 
@@ -977,14 +953,13 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
         vehicle_circle_pose.orientation =
           tier4_autoware_utils::createQuaternionFromYaw(ref_point.yaw + ref_point.alpha);
 
-        debug_data.vehicle_circles_pose.at(i).push_back(vehicle_circle_pose);
+        debug_data_ptr->vehicle_circles_pose.at(i).push_back(vehicle_circle_pose);
       }
     }
   }
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "        getMPTPoints:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr->msg_stream << "        " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 
   return traj_points;
 }
@@ -1014,19 +989,18 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
 
 void MPTOptimizer::calcBounds(
   std::vector<ReferencePoint> & ref_points, const bool enable_avoidance, const CVMaps & maps,
-  DebugData & debug_data) const
+  std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   // search bounds candidate for each ref points
   SequentialBoundsCandidates sequential_bounds_candidates;
   for (const auto & ref_point : ref_points) {
     const auto bounds_candidates =
-      getBoundsCandidates(enable_avoidance, convertRefPointsToPose(ref_point), maps);
+      getBoundsCandidates(enable_avoidance, convertRefPointsToPose(ref_point), maps, debug_data_ptr);
     sequential_bounds_candidates.push_back(bounds_candidates);
   }
-  debug_data.sequential_bounds_candidates = sequential_bounds_candidates;
+  debug_data_ptr->sequential_bounds_candidates = sequential_bounds_candidates;
 
   // search continuous and widest bounds only for front point
   for (size_t i = 0; i < sequential_bounds_candidates.size(); ++i) {
@@ -1070,20 +1044,16 @@ void MPTOptimizer::calcBounds(
     }
   }
 
-  const double get_ref_bounds_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "            calcBounds:= %f [ms]", get_ref_bounds_ms);
-
+  debug_data_ptr->msg_stream << "            " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return;
 }
 
 void MPTOptimizer::calcVehicleBounds(
   std::vector<ReferencePoint> & ref_points, [[maybe_unused]] const CVMaps & maps,
-  [[maybe_unused]] DebugData & debug_data, [[maybe_unused]] const bool enable_avoidance) const
+  [[maybe_unused]] std::shared_ptr<DebugData> debug_data_ptr, [[maybe_unused]] const bool enable_avoidance) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   SplineInterpolation2d ref_points_spline_interpolation;
   ref_points_spline_interpolation.calcSplineCoefficients(ref_points);
@@ -1147,19 +1117,19 @@ void MPTOptimizer::calcVehicleBounds(
 
       vehicle_avoiding_points.push_back(avoid_point);
     }
-    debug_data.ref_bounds_pose.push_back(vehicle_avoiding_points);
+    debug_data_ptr->ref_bounds_pose.push_back(vehicle_avoiding_points);
   }
 
-  const double get_ref_bounds_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "            calcVehicleBounds:= %f [ms]", get_ref_bounds_ms);
+  debug_data_ptr->msg_stream << "            " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 }
 
 BoundsCandidates MPTOptimizer::getBoundsCandidates(
   const bool enable_avoidance, const geometry_msgs::msg::Pose & avoiding_point,
-  const CVMaps & maps) const
+  const CVMaps & maps, [[maybe_unused]] std::shared_ptr<DebugData> debug_data_ptr) const
 {
+  // stop_watch_.tic(__func__);
+
   BoundsCandidates bounds_candidate;
 
   const double lane_width = 5.0;
@@ -1254,6 +1224,9 @@ BoundsCandidates MPTOptimizer::getBoundsCandidates(
     bounds_candidate.push_back(invalid_bounds);
   }
 
+  // debug_data_ptr->msg_stream << "          " << __func__ <<
+  // ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
+
   return bounds_candidate;
 }
 
@@ -1315,8 +1288,11 @@ boost::optional<double> MPTOptimizer::getClearance(
 }
 
 MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
-  const MPTMatrix & m, [[maybe_unused]] const std::vector<ReferencePoint> & ref_points) const
+  const MPTMatrix & m, [[maybe_unused]] const std::vector<ReferencePoint> & ref_points,
+  std::shared_ptr<DebugData> debug_data_ptr) const
 {
+  stop_watch_.tic(__func__);
+
   const size_t DIM_X = vehicle_model_ptr_->getDimX();
   const size_t N_ref = ref_points.size();
 
@@ -1398,6 +1374,9 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
   obj_matrix.hessian = concat_h;
   obj_matrix.gradient = {concat_f.data(), concat_f.data() + concat_f.rows()};
 
+  debug_data_ptr->msg_stream << "          " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
+
   return obj_matrix;
 }
 
@@ -1408,7 +1387,7 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
   [[maybe_unused]] const bool enable_avoidance, const MPTMatrix & m,
   [[maybe_unused]] const CVMaps & maps, const std::vector<ReferencePoint> & ref_points,
-  [[maybe_unused]] DebugData & debug_data) const
+  [[maybe_unused]] std::shared_ptr<DebugData> debug_data_ptr) const
 {
   // NOTE: currently, add additional length to soft bounds approximately
   //       for soft second and hard bounds

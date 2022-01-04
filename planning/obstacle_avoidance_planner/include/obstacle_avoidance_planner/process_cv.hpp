@@ -144,6 +144,6 @@ bool isOutsideDrivableAreaFromCirclesFootprint(
 CVMaps getMaps(
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
-  const TrajectoryParam & traj_param, DebugData & debug_data, const bool is_showing_debug_info);
+  const TrajectoryParam & traj_param, std::shared_ptr<DebugData> debug_data_ptr);
 }  // namespace process_cv
 #endif  // OBSTACLE_AVOIDANCE_PLANNER__PROCESS_CV_HPP_

@@ -15,6 +15,7 @@
 #ifndef OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 #define OBSTACLE_AVOIDANCE_PLANNER__COMMON_STRUCTS_HPP_
 
+#include "rclcpp/rclcpp.hpp"
 #include "opencv2/core.hpp"
 #include "opencv2/opencv.hpp"
 
@@ -105,6 +106,37 @@ struct FOAData
 
 struct DebugData
 {
+  struct StreamWithPrint
+  {
+    StreamWithPrint& operator<<(const std::string& s)
+    {
+      tmp_ss << s;
+      if (s.back() == '\n') {
+        if (is_showing_calculation_time) {
+          RCLCPP_INFO_STREAM(rclcpp::get_logger("obstacle_avoidance_planner.time"), tmp_ss.str());
+        }
+        str += tmp_ss.str();
+        tmp_ss.clear();
+      }
+      return *this;
+    }
+
+    StreamWithPrint& operator<<(const double d)
+    {
+      tmp_ss << d;
+      return *this;
+    }
+
+    std::string getString() const
+    {
+      return str;
+    }
+
+    bool is_showing_calculation_time;
+    std::string str = "\n";
+    std::stringstream tmp_ss;
+  };
+
   boost::optional<geometry_msgs::msg::Pose> stop_pose_by_drivable_area = boost::none;
   std::vector<geometry_msgs::msg::Point> interpolated_points;
   std::vector<geometry_msgs::msg::Point> straight_points;
@@ -139,6 +171,8 @@ struct DebugData
   geometry_msgs::msg::Pose current_ego_pose;
   std::vector<double> avoiding_circle_offsets;
   double avoiding_circle_radius;
+
+  StreamWithPrint msg_stream;
 };
 
 struct Trajectories

@@ -20,7 +20,6 @@
 #include "rclcpp/time.hpp"
 #include "tf2/utils.h"
 #include "tier4_autoware_utils/ros/update_param.hpp"
-#include "tier4_autoware_utils/system/stop_watch.hpp"
 #include "tier4_autoware_utils/trajectory/tmp_conversion.hpp"
 #include "vehicle_info_util/vehicle_info_util.hpp"
 
@@ -127,6 +126,8 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     create_publisher<nav_msgs::msg::OccupancyGrid>("~/debug/object_clearance_map", durable_qos);
   debug_area_with_objects_pub_ =
     create_publisher<nav_msgs::msg::OccupancyGrid>("~/debug/area_with_objects", durable_qos);
+  debug_msg_pub_ =
+    create_publisher<tier4_debug_msgs::msg::StringStamped>("~/debug/debug_msg", 1);
 
   path_sub_ = create_subscription<autoware_auto_planning_msgs::msg::Path>(
     "~/input/path", rclcpp::QoS{1},
@@ -146,7 +147,7 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     declare_parameter("is_publishing_object_clearance_map", false);
   is_publishing_clearance_map_ = declare_parameter("is_publishing_clearance_map", false);
   is_showing_debug_info_ = declare_parameter("is_showing_debug_info", false);
-  is_showing_total_time_ = declare_parameter("is_showing_total_time", false);
+  is_showing_calculation_time_ = declare_parameter("is_showing_calculation_time", false);
   is_using_vehicle_config_ = declare_parameter("is_using_vehicle_config", false);
   is_stopping_if_outside_drivable_area_ =
     declare_parameter("is_stopping_if_outside_drivable_area", true);
@@ -493,6 +494,7 @@ void ObstacleAvoidancePlanner::pathCallback(
 {
   std::lock_guard<std::mutex> lock(mutex_);
   current_ego_pose_ = self_pose_listener_.getCurrentPose()->pose;
+  debug_data_ptr_ = std::make_shared<DebugData>();
 
   if (msg->points.empty() || msg->drivable_area.data.empty() || !current_twist_ptr_) {
     return;
@@ -524,10 +526,7 @@ void ObstacleAvoidancePlanner::enableAvoidanceCallback(
 autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateTrajectory(
   const autoware_auto_planning_msgs::msg::Path & path)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
-
-  debug_data_ = DebugData();
+  stop_watch_.tic(__func__);
 
   const auto optimized_traj_points = generateOptimizedTrajectory(path);
 
@@ -539,10 +538,19 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
   prev_path_points_ptr_ =
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
 
-  publishDebugData(debug_data_, path, optimized_traj_points, *vehicle_param_ptr_);
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_total_time_,
-    "total:= %f [ms]\n==========================", stop_watch.toc() * 1000.0);
+  publishDebugData(path, optimized_traj_points, *vehicle_param_ptr_);
+
+  debug_data_ptr_->msg_stream << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n" <<
+    "========================================";
+
+  { // debug msg
+    tier4_debug_msgs::msg::StringStamped debug_msg_msg;
+    debug_msg_msg.stamp = get_clock()->now();
+    debug_msg_msg.data = debug_data_ptr_->msg_stream.getString();
+    debug_msg_pub_->publish(debug_msg_msg);
+  }
+
   return output;
 }
 
@@ -550,8 +558,7 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>
 ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   const autoware_auto_planning_msgs::msg::Path & path)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic("total");
+  stop_watch_.tic(__func__);
 
   if (reset_prev_info_) {
     prev_path_points_ptr_ = nullptr;
@@ -580,10 +587,11 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   mpt_optimizer_ptr_->setEgoData(current_ego_pose_, current_twist_ptr_->twist.linear.x);
 
   // update debug_data
-  debug_data_.visualize_sampling_num = visualize_sampling_num_;
-  debug_data_.current_ego_pose = current_ego_pose_;
-  debug_data_.avoiding_circle_radius = mpt_param_ptr_->avoiding_circle_radius;
-  debug_data_.avoiding_circle_offsets = mpt_param_ptr_->avoiding_circle_offsets;
+  debug_data_ptr_->msg_stream.is_showing_calculation_time = is_showing_calculation_time_;
+  debug_data_ptr_->visualize_sampling_num = visualize_sampling_num_;
+  debug_data_ptr_->current_ego_pose = current_ego_pose_;
+  debug_data_ptr_->avoiding_circle_radius = mpt_param_ptr_->avoiding_circle_radius;
+  debug_data_ptr_->avoiding_circle_offsets = mpt_param_ptr_->avoiding_circle_offsets;
 
   /*
   // filter avoiding obstacles
@@ -594,27 +602,22 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   // create clearance maps
   const CVMaps cv_maps = process_cv::getMaps(
     enable_avoidance_, path, /*avoiding_objects*/ in_objects_ptr_->objects, *traj_param_ptr_,
-    debug_data_, is_showing_debug_info_);
+    debug_data_ptr_);
 
   // calculate trajectory with EB and MPT, then extend trajectory
   auto optimal_trajs = calcTrajectories(path, cv_maps);
 
   // insert 0 velocity when trajectory is over drivable area
-  stop_watch.tic();
   calcTrajectoryInsideDrivableArea(optimal_trajs.model_predictive_trajectory, cv_maps);
-
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    calcTrajectoryInsideDrivableArea:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr_->msg_stream << "    " << __func__ <<
+    ":= " << stop_watch_.toc("calcTrajectoryInsideDrivableArea")  << " [ms]\n";
 
   // make previous trajectories
   prev_optimal_trajs_ptr_ = std::make_unique<Trajectories>(
     makePrevTrajectories(path.points, optimal_trajs));
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "  node.generateOptimizedTrajectory:= %f [ms]", stop_watch.toc("total") * 1000.0);
-
+  debug_data_ptr_->msg_stream << "  " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return optimal_trajs.model_predictive_trajectory;
 }
 
@@ -654,32 +657,35 @@ bool ObstacleAvoidancePlanner::needReplan(
 Trajectories ObstacleAvoidancePlanner::calcTrajectories(
   const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-
+  stop_watch_.tic(__func__);
   // smooth trajectory with EB
   const auto eb_traj = eb_path_optimizer_ptr_->getEBTrajectory(
-    enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_);
+    enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
   if (!eb_traj) {
     return getPrevTrajs(path.points);
   }
 
   // optimize trajectory to be kinematically feasible and collision free with MPT
   const auto mpt_trajs = mpt_optimizer_ptr_->getModelPredictiveTrajectory(
-    enable_avoidance_, eb_traj.get(), path.points, prev_optimal_trajs_ptr_, cv_maps, debug_data_);
+    enable_avoidance_, eb_traj.get(), path.points, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
   if (!mpt_trajs) {
     return getPrevTrajs(path.points);
   }
 
   // debug data
-  debug_data_.mpt_traj = mpt_trajs.get().mpt;
-  debug_data_.mpt_ref_traj = util::convertToTrajectoryPoints(mpt_trajs.get().ref_points);
+  debug_data_ptr_->mpt_traj = mpt_trajs.get().mpt;
+  debug_data_ptr_->mpt_ref_traj = util::convertToTrajectoryPoints(mpt_trajs.get().ref_points);
 
   Trajectories trajs;
   trajs.smoothed_trajectory = eb_traj.get();
   trajs.mpt_ref_points = mpt_trajs.get().ref_points;
   trajs.model_predictive_trajectory = mpt_trajs.get().mpt;
 
-  debug_data_.eb_traj = eb_traj.get();
+  debug_data_ptr_->eb_traj = eb_traj.get();
+
+  debug_data_ptr_->msg_stream << "    " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
+
   return trajs;
 }
 
@@ -688,6 +694,7 @@ ObstacleAvoidancePlanner::getExtendedOptimizedTrajectory(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_points)
 {
+  stop_watch_.tic(__func__);
   if (static_cast<int>(optimized_points.size()) <= traj_param_ptr_->num_fix_points_for_extending) {
     RCLCPP_INFO_THROTTLE(
       rclcpp::get_logger("EBPathOptimizer"), logger_ros_clock_,
@@ -752,14 +759,15 @@ ObstacleAvoidancePlanner::getExtendedOptimizedTrajectory(
   auto extended_points = interpolated_non_fixed_traj_points;
   extended_points.insert(extended_points.end(), fixed_traj_points.begin(), fixed_traj_points.end());
 
-  debug_data_.extended_non_fixed_traj = interpolated_non_fixed_traj_points;
-  debug_data_.extended_fixed_traj = fixed_traj_points;
+  debug_data_ptr_->extended_non_fixed_traj = interpolated_non_fixed_traj_points;
+  debug_data_ptr_->extended_fixed_traj = fixed_traj_points;
 
   // TODO(murooka) deal with 1e10
   for (auto & point : extended_points) {
     point.longitudinal_velocity_mps = 1e10;
   }
 
+  debug_data_ptr_->msg_stream << "      " << __func__ << ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return extended_points;
 }
 
@@ -768,8 +776,7 @@ ObstacleAvoidancePlanner::generatePostProcessedTrajectory(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & optimized_traj_points)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> trajectory_points;
   if (path_points.empty()) {
@@ -785,27 +792,21 @@ ObstacleAvoidancePlanner::generatePostProcessedTrajectory(
   }
 
   // calculate extended trajectory that connects to optimized trajectory smoothly
-  stop_watch.tic();
   const auto extended_traj_points = getExtendedOptimizedTrajectory(path_points, optimized_traj_points);
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "      getExtendedOptimizedTrajectory:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // concat trajectories
-  stop_watch.tic();
+  // stop_watch.tic();
   const auto full_traj_points = util::concatTraj(optimized_traj_points, extended_traj_points);
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    concatTraj:= %f [ms]", stop_watch.toc() * 1000.0);
+  // RCLCPP_INFO_EXPRESSION(
+  // rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
+  // "    concatTraj:= %f [ms]", stop_watch.toc() * 1000.0);
 
   // Basically not changing the shape of trajectory,
   // re-calculate position and velocity with interpolation
   const auto full_traj_points_with_vel = reCalcTrajectoryPoints(path_points, full_traj_points);
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    generatePostProcessedTrajectory:= %f [ms]", stop_watch.toc() * 1000.0);
-
+  debug_data_ptr_->msg_stream << "    " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return full_traj_points_with_vel;
 }
 
@@ -814,8 +815,6 @@ ObstacleAvoidancePlanner::reCalcTrajectoryPoints(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-
   const auto fine_traj_points =
     [&]() {
       // interpolate pose (x, y, and yaw)
@@ -834,59 +833,58 @@ ObstacleAvoidancePlanner::reCalcTrajectoryPoints(
   const size_t zero_vel_fine_traj_idx = std::min(zero_vel_path_idx, zero_vel_traj_idx);
 
   // search nearest velocity to path point, and fill in result trajectory
-  stop_watch.tic();
+  // stop_watch_.tic();
   const auto re_calc_traj_points = util::alignVelocityWithPoints(
     fine_traj_points, path_points, zero_vel_fine_traj_idx);
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    alignVelocity:= %f [ms]", stop_watch.toc() * 1000.0);
+  // RCLCPP_INFO_EXPRESSION(
+  // rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
+  // "    alignVelocity:= %f [ms]", stop_watch.toc() * 1000.0);
 
   return re_calc_traj_points;
 }
 
 void ObstacleAvoidancePlanner::publishDebugData(
-  const DebugData & debug_data_, const autoware_auto_planning_msgs::msg::Path & path,
+  const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
   const VehicleParam & vehicle_param)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic("total");
+  stop_watch_.tic(__func__);
 
   {  // publish trajectories
     auto traj =
-      tier4_autoware_utils::convertToTrajectory(debug_data_.foa_data.avoiding_traj_points);
+      tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->foa_data.avoiding_traj_points);
     traj.header = path.header;
     avoiding_traj_pub_->publish(traj);
 
-    auto debug_eb_traj = tier4_autoware_utils::convertToTrajectory(debug_data_.eb_traj);
+    auto debug_eb_traj = tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->eb_traj);
     debug_eb_traj.header = path.header;
     debug_eb_traj_pub_->publish(debug_eb_traj);
 
     auto debug_extended_fixed_traj =
-      tier4_autoware_utils::convertToTrajectory(debug_data_.extended_fixed_traj);
+      tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->extended_fixed_traj);
     debug_extended_fixed_traj.header = path.header;
     debug_extended_fixed_traj_pub_->publish(debug_extended_fixed_traj);
 
     auto debug_extended_non_fixed_traj =
-      tier4_autoware_utils::convertToTrajectory(debug_data_.extended_non_fixed_traj);
+      tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->extended_non_fixed_traj);
     debug_extended_non_fixed_traj.header = path.header;
     debug_extended_non_fixed_traj_pub_->publish(debug_extended_non_fixed_traj);
 
     auto debug_mpt_fixed_traj =
-      tier4_autoware_utils::convertToTrajectory(debug_data_.mpt_fixed_traj);
+      tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->mpt_fixed_traj);
     debug_mpt_fixed_traj.header = path.header;
     debug_mpt_fixed_traj_pub_->publish(debug_mpt_fixed_traj);
 
-    auto debug_mpt_ref_traj = tier4_autoware_utils::convertToTrajectory(debug_data_.mpt_ref_traj);
+    auto debug_mpt_ref_traj = tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->mpt_ref_traj);
     debug_mpt_ref_traj.header = path.header;
     debug_mpt_ref_traj_pub_->publish(debug_mpt_ref_traj);
 
-    auto debug_mpt_traj = tier4_autoware_utils::convertToTrajectory(debug_data_.mpt_traj);
+    auto debug_mpt_traj = tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->mpt_traj);
     debug_mpt_traj.header = path.header;
     debug_mpt_traj_pub_->publish(debug_mpt_traj);
 
     tier4_planning_msgs::msg::IsAvoidancePossible is_avoidance_possible;
-    is_avoidance_possible.is_avoidance_possible = debug_data_.foa_data.is_avoidance_possible;
+    is_avoidance_possible.is_avoidance_possible = debug_data_ptr_->foa_data.is_avoidance_possible;
     is_avoidance_possible_pub_->publish(is_avoidance_possible);
   }
 
@@ -901,48 +899,41 @@ void ObstacleAvoidancePlanner::publishDebugData(
       traj_points_debug.back().pose.position.z = path.points.at(idx).pose.position.z + 1.0;
     }
 
-    stop_watch.tic();
+    stop_watch_.tic("getDebugVisualizationMarker");
     const auto & debug_marker = debug_visualization::getDebugVisualizationMarker(
-      debug_data_, traj_points_debug, vehicle_param, is_showing_debug_info_, false);
-    RCLCPP_INFO_EXPRESSION(
-      rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-      "      getDebugVisualizationMarker:= %f [ms]", stop_watch.toc() * 1000.0);
+      debug_data_ptr_, traj_points_debug, vehicle_param, false);
+    debug_data_ptr_->msg_stream << "      getDebugVisualizationMarker:= " << stop_watch_.toc("getDebugVisualizationMarker")  << " [ms]\n";
 
-    stop_watch.tic();
+    stop_watch_.tic("publishDebugVisualizationMarker");
     debug_markers_pub_->publish(debug_marker);
-    RCLCPP_INFO_EXPRESSION(
-      rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-      "      debug_markers publish:= %f [ms]", stop_watch.toc() * 1000.0);
+    debug_data_ptr_->msg_stream << "      publishDebugVisualizationMarker:= " << stop_watch_.toc("publishDebugVisualizationMarker")  << " [ms]\n";
   }
 
   {  // publish clearance map
-    stop_watch.tic();
+    stop_watch_.tic("publichClearanceMap");
     if (is_publishing_area_with_objects_) {  // false
       debug_area_with_objects_pub_->publish(debug_visualization::getDebugCostmap(
-        debug_data_.area_with_objects_map, path.drivable_area));
+        debug_data_ptr_->area_with_objects_map, path.drivable_area));
     }
     if (is_publishing_object_clearance_map_) {  // false
       debug_object_clearance_map_pub_->publish(debug_visualization::getDebugCostmap(
-        debug_data_.only_object_clearance_map, path.drivable_area));
+        debug_data_ptr_->only_object_clearance_map, path.drivable_area));
     }
     if (is_publishing_clearance_map_) {  // true
       debug_clearance_map_pub_->publish(
-        debug_visualization::getDebugCostmap(debug_data_.clearance_map, path.drivable_area));
+        debug_visualization::getDebugCostmap(debug_data_ptr_->clearance_map, path.drivable_area));
     }
-    RCLCPP_INFO_EXPRESSION(
-      rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-      "      getDebugCostMap * 3:= %f [ms]", stop_watch.toc() * 1000.0);
+    debug_data_ptr_->msg_stream << "      getDebugCostMap * 3:= " << stop_watch_.toc("publichClearanceMap")  << " [ms]\n";
   }
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    publishDebugData:= %f [ms]", stop_watch.toc("total") * 1000.0);
+  debug_data_ptr_->msg_stream << "    " << __func__ << ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 }
 
 void ObstacleAvoidancePlanner::calcTrajectoryInsideDrivableArea(
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points,
   const CVMaps & cv_maps)
 {
+  stop_watch_.tic(__func__);
   const auto & map_info = cv_maps.map_info;
   const auto & road_clearance_map = cv_maps.clearance_map;
 
@@ -962,7 +953,7 @@ void ObstacleAvoidancePlanner::calcTrajectoryInsideDrivableArea(
 
     if (is_outside) {
       traj_points[i].longitudinal_velocity_mps = 0.0;
-      debug_data_.stop_pose_by_drivable_area = traj_points[i].pose;
+      debug_data_ptr_->stop_pose_by_drivable_area = traj_points[i].pose;
       return;
     }
   }
@@ -995,8 +986,7 @@ Trajectories ObstacleAvoidancePlanner::makePrevTrajectories(
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const Trajectories & trajs)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic();
+  stop_watch_.tic(__func__);
 
   const auto post_processed_smoothed_traj =
     generatePostProcessedTrajectory(path_points, trajs.smoothed_trajectory);
@@ -1006,9 +996,8 @@ Trajectories ObstacleAvoidancePlanner::makePrevTrajectories(
   trajectories.mpt_ref_points = trajs.mpt_ref_points;
   trajectories.model_predictive_trajectory = trajs.model_predictive_trajectory;
 
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "    makePrevTrajectories:= %f [ms]", stop_watch.toc() * 1000.0);
+  debug_data_ptr_->msg_stream << "    " << __func__ << ":= " <<
+    stop_watch_.toc(__func__) << " [ms]\n";
 
   return trajectories;
 }
