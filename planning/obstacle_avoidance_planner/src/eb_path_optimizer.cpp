@@ -15,7 +15,6 @@
 #include "obstacle_avoidance_planner/eb_path_optimizer.hpp"
 
 #include "obstacle_avoidance_planner/util.hpp"
-#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "geometry_msgs/msg/vector3.hpp"
 
@@ -109,13 +108,13 @@ boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>>
 EBPathOptimizer::getEBTrajectory(
   const bool enable_avoidance, const geometry_msgs::msg::Pose & ego_pose,
   const autoware_auto_planning_msgs::msg::Path & path,
-  const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & cv_maps, DebugData & debug_data)
+  const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & cv_maps, std::shared_ptr<DebugData> debug_data_ptr)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
+  stop_watch_.tic(__func__);
 
   // get candidate points for optimization
   const CandidatePoints candidate_points = getCandidatePoints(
-    ego_pose, path.points, prev_trajs, cv_maps.drivable_area, path.drivable_area.info, debug_data);
+    ego_pose, path.points, prev_trajs, cv_maps.drivable_area, path.drivable_area.info, debug_data_ptr);
   if (candidate_points.fixed_points.empty() && candidate_points.non_fixed_points.empty()) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("EBPathOptimizer"), is_showing_debug_info_,
@@ -124,21 +123,19 @@ EBPathOptimizer::getEBTrajectory(
   }
 
   // get optimized smooth points with elastic band
-  stop_watch.tic();
   const auto eb_traj_points = getOptimizedTrajectory(
     enable_avoidance, path, candidate_points, cv_maps.clearance_map,
-    cv_maps.only_objects_clearance_map, debug_data);
+    cv_maps.only_objects_clearance_map, debug_data_ptr);
   if (!eb_traj_points) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("EBPathOptimizer"), is_showing_debug_info_,
       "return boost::none since smoothing failed");
     return boost::none;
   }
-  const double opt_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "      getEBTrajectory:= %f [ms]", opt_ms);
 
+
+  debug_data_ptr->msg_stream << "      " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return eb_traj_points;
 }
 
@@ -146,9 +143,9 @@ boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>>
 EBPathOptimizer::getOptimizedTrajectory(
   [[maybe_unused]] const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const CandidatePoints & candidate_points, const cv::Mat & clearance_map,
-  const cv::Mat & only_objects_clearance_map, DebugData & debug_data)
+  const cv::Mat & only_objects_clearance_map, std::shared_ptr<DebugData> debug_data_ptr)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
+  stop_watch_.tic(__func__);
 
   // get constrain rectangles around each point
   auto full_points = candidate_points.fixed_points;
@@ -162,14 +159,14 @@ EBPathOptimizer::getOptimizedTrajectory(
     return boost::none;
   }
 
-  debug_data.interpolated_points = interpolated_points;
+  debug_data_ptr->interpolated_points = interpolated_points;
   const int farthest_idx = std::min(
     (traj_param_.num_sampling_points - 1), static_cast<int>(interpolated_points.size() - 1));
   const int num_fixed_points =
     getNumFixedPoints(candidate_points.fixed_points, interpolated_points, farthest_idx);
   const int straight_line_idx = getStraightLineIdx(
     interpolated_points, farthest_idx, only_objects_clearance_map, path.drivable_area.info,
-    debug_data.straight_points);
+    debug_data_ptr->straight_points);
   std::vector<geometry_msgs::msg::Point> padded_interpolated_points =
     getPaddedInterpolatedPoints(interpolated_points, farthest_idx);
 
@@ -180,40 +177,34 @@ EBPathOptimizer::getOptimizedTrajectory(
     return boost::none;
   }
 
-  stop_watch.tic();
   const auto traj_points = calculateTrajectory(
-    padded_interpolated_points, rectangles.get(), farthest_idx, OptMode::Normal);
-  const double calc_traj_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "        calculateTrajectory:= %f [ms]", calc_traj_ms);
+    padded_interpolated_points, rectangles.get(), farthest_idx, OptMode::Normal, debug_data_ptr);
 
+  debug_data_ptr->msg_stream << "      " << __func__ <<
+    ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
   return traj_points;
 }
 
 std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> EBPathOptimizer::calculateTrajectory(
   const std::vector<geometry_msgs::msg::Point> & padded_interpolated_points,
   const std::vector<ConstrainRectangle> & constrain_rectangles, const int farthest_idx,
-  const OptMode & opt_mode)
+  const OptMode & opt_mode, std::shared_ptr<DebugData> debug_data_ptr)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
+  stop_watch_.tic(__func__);
 
   // update constrain for QP based on constrain rectangles
   updateConstrain(padded_interpolated_points, constrain_rectangles, opt_mode);
 
   // solve QP and get optimized trajectory
-  stop_watch.tic();
   std::vector<double> optimized_points = solveQP(opt_mode);
-  const double solve_qp_ms = stop_watch.toc() * 1000.0;
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("eb_path_optimizer"), is_showing_debug_info_, "%d",
-    static_cast<int>(opt_mode));
-  RCLCPP_INFO_EXPRESSION(
-    rclcpp::get_logger("obstacle_avoidance_planner.time"), is_showing_debug_info_,
-    "          solveQP:= %f [ms]", solve_qp_ms);
 
   auto traj_points =
     convertOptimizedPointsToTrajectory(optimized_points, constrain_rectangles, farthest_idx);
+
+  if (debug_data_ptr) {
+    debug_data_ptr->msg_stream << "          " << __func__ <<
+      ":= " << stop_watch_.toc(__func__)  << " [ms]\n";
+  }
   return traj_points;
 }
 
@@ -284,7 +275,7 @@ EBPathOptimizer::CandidatePoints EBPathOptimizer::getCandidatePoints(
   const geometry_msgs::msg::Pose & ego_pose,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const std::unique_ptr<Trajectories> & prev_trajs, const cv::Mat & drivable_area,
-  const nav_msgs::msg::MapMetaData & map_info, DebugData & debug_data)
+  const nav_msgs::msg::MapMetaData & map_info, std::shared_ptr<DebugData> debug_data_ptr)
 {
   const std::vector<geometry_msgs::msg::Pose> fixed_points =
     getFixedPoints(ego_pose, path_points, prev_trajs, drivable_area, map_info);
@@ -316,8 +307,8 @@ EBPathOptimizer::CandidatePoints EBPathOptimizer::getCandidatePoints(
   candidate_points.begin_path_idx = begin_idx;
   candidate_points.end_path_idx = path_points.size() - 1;
 
-  debug_data.fixed_points = candidate_points.fixed_points;
-  debug_data.non_fixed_points = candidate_points.non_fixed_points;
+  debug_data_ptr->fixed_points = candidate_points.fixed_points;
+  debug_data_ptr->non_fixed_points = candidate_points.non_fixed_points;
   return candidate_points;
 }
 
@@ -541,7 +532,7 @@ boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getConstrainRe
   const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
   const std::vector<geometry_msgs::msg::Point> & interpolated_points, const int num_fixed_points,
   const int farthest_point_idx, const int straight_idx, const cv::Mat & clearance_map,
-  const cv::Mat & only_objects_clearance_map, DebugData & debug_data)
+  const cv::Mat & only_objects_clearance_map, std::shared_ptr<DebugData> debug_data_ptr)
 {
   const nav_msgs::msg::MapMetaData map_info = path.drivable_area.info;
   std::vector<ConstrainRectangle> object_road_constrain_ranges(traj_param_.num_sampling_points);
@@ -585,13 +576,13 @@ boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getConstrainRe
       }
     }
   }
-  debug_data.foa_data =
+  debug_data_ptr->foa_data =
     getFOAData(object_road_constrain_ranges, interpolated_points, farthest_point_idx);
   boost::optional<std::vector<ConstrainRectangle>> constrain_ranges =
     getPostProcessedConstrainRectangles(
       enable_avoidance, object_road_constrain_ranges, road_constrain_ranges,
       only_smooth_constrain_ranges, interpolated_points, path.points, farthest_point_idx,
-      num_fixed_points, straight_idx, debug_data);
+      num_fixed_points, straight_idx, debug_data_ptr);
   return constrain_ranges;
 }
 
@@ -631,7 +622,7 @@ EBPathOptimizer::getPostProcessedConstrainRectangles(
   const std::vector<geometry_msgs::msg::Point> & interpolated_points,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
   const int farthest_point_idx, const int num_fixed_points, const int straight_idx,
-  DebugData & debug_data) const
+  std::shared_ptr<DebugData> debug_data_ptr) const
 {
   const bool is_using_road_constrain = enable_avoidance ? false : true;
   const bool is_using_only_smooth_constrain = isFixingPathPoint(path_points) ? true : false;
@@ -639,12 +630,12 @@ EBPathOptimizer::getPostProcessedConstrainRectangles(
   if (constrain_param_.is_getting_constraints_close2path_points) {
     return getConstrainRectanglesClose2PathPoints(
       is_using_only_smooth_constrain, is_using_road_constrain, object_constrains, road_constrains,
-      only_smooth_constrains, debug_data);
+      only_smooth_constrains, debug_data_ptr);
   } else {
     return getConstrainRectanglesWithinArea(
       is_using_only_smooth_constrain, is_using_road_constrain, farthest_point_idx, num_fixed_points,
       straight_idx, object_constrains, road_constrains, only_smooth_constrains, interpolated_points,
-      path_points, debug_data);
+      path_points, debug_data_ptr);
   }
 }
 
@@ -653,28 +644,28 @@ EBPathOptimizer::getConstrainRectanglesClose2PathPoints(
   const bool is_using_only_smooth_constrain, const bool is_using_road_constrain,
   const std::vector<ConstrainRectangle> & object_constrains,
   const std::vector<ConstrainRectangle> & road_constrains,
-  const std::vector<ConstrainRectangle> & only_smooth_constrains, DebugData & debug_data) const
+  const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const
 {
   if (is_using_only_smooth_constrain) {
     return only_smooth_constrains;
   }
 
   if (is_using_road_constrain) {
-    return getValidConstrainRectangles(road_constrains, only_smooth_constrains, debug_data);
+    return getValidConstrainRectangles(road_constrains, only_smooth_constrains, debug_data_ptr);
   } else {
-    return getValidConstrainRectangles(object_constrains, only_smooth_constrains, debug_data);
+    return getValidConstrainRectangles(object_constrains, only_smooth_constrains, debug_data_ptr);
   }
 }
 
 boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getValidConstrainRectangles(
   const std::vector<ConstrainRectangle> & constrains,
-  const std::vector<ConstrainRectangle> & only_smooth_constrains, DebugData & debug_data) const
+  const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const
 {
   bool only_smooth = true;
   int debug_cnt = 0;
   for (const auto & rect : constrains) {
     if (rect.is_empty_driveable_area) {
-      debug_data.constrain_rectangles = constrains;
+      debug_data_ptr->constrain_rectangles = constrains;
       RCLCPP_INFO_EXPRESSION(
         rclcpp::get_logger("EBPathOptimizer"), is_showing_debug_info_, "Constraint failed at %d",
         debug_cnt);
@@ -689,10 +680,10 @@ boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getValidConstr
     debug_cnt++;
   }
   if (only_smooth) {
-    debug_data.constrain_rectangles = only_smooth_constrains;
+    debug_data_ptr->constrain_rectangles = only_smooth_constrains;
     return only_smooth_constrains;
   } else {
-    debug_data.constrain_rectangles = constrains;
+    debug_data_ptr->constrain_rectangles = constrains;
     return constrains;
   }
 }
@@ -705,14 +696,14 @@ boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getConstrainRe
   const std::vector<ConstrainRectangle> & only_smooth_constrains,
   const std::vector<geometry_msgs::msg::Point> & interpolated_points,
   const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-  DebugData & debug_data) const
+  std::shared_ptr<DebugData> debug_data_ptr) const
 {
   if (is_using_road_constrain) {
-    debug_data.constrain_rectangles = road_constrains;
+    debug_data_ptr->constrain_rectangles = road_constrains;
   } else if (is_using_only_smooth_constrain) {
-    debug_data.constrain_rectangles = only_smooth_constrains;
+    debug_data_ptr->constrain_rectangles = only_smooth_constrains;
   } else {
-    debug_data.constrain_rectangles = object_constrains;
+    debug_data_ptr->constrain_rectangles = object_constrains;
   }
 
   std::vector<ConstrainRectangle> constrain_ranges(traj_param_.num_sampling_points);
@@ -1491,6 +1482,6 @@ FOAData EBPathOptimizer::getFOAData(
 
   foa_data.constrain_rectangles = rectangles;
   foa_data.avoiding_traj_points = calculateTrajectory(
-    interpolated_points, foa_data.constrain_rectangles, farthest_idx, OptMode::Visualizing);
+    interpolated_points, foa_data.constrain_rectangles, farthest_idx, OptMode::Visualizing, nullptr);
   return foa_data;
 }

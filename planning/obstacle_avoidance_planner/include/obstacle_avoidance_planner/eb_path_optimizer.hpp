@@ -25,6 +25,7 @@
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "nav_msgs/msg/map_meta_data.hpp"
+#include "tier4_autoware_utils/system/stop_watch.hpp"
 
 #include "boost/optional.hpp"
 
@@ -101,6 +102,8 @@ private:
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
   std::unique_ptr<autoware::common::osqp::OSQPInterface> ex_osqp_solver_ptr_;
   std::unique_ptr<autoware::common::osqp::OSQPInterface> vis_osqp_solver_ptr_;
+
+  mutable tier4_autoware_utils::StopWatch<std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock> stop_watch_;
 
   void initializeSolver();
 
@@ -191,17 +194,17 @@ private:
     const std::vector<geometry_msgs::msg::Point> & interpolated_points,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const int farthest_point_idx, const int num_fixed_points, const int straight_idx,
-    DebugData & debug_data) const;
+    std::shared_ptr<DebugData> debug_data_ptr) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getValidConstrainRectangles(
     const std::vector<ConstrainRectangle> & constrains,
-    const std::vector<ConstrainRectangle> & only_smooth_constrains, DebugData & debug_data) const;
+    const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectanglesClose2PathPoints(
     const bool is_using_only_smooth_constrain, const bool is_using_road_constrain,
     const std::vector<ConstrainRectangle> & object_constrains,
     const std::vector<ConstrainRectangle> & road_constrains,
-    const std::vector<ConstrainRectangle> & only_smooth_constrains, DebugData & debug_data) const;
+    const std::vector<ConstrainRectangle> & only_smooth_constrains, std::shared_ptr<DebugData> debug_data_ptr) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectanglesWithinArea(
     const bool is_using_only_smooth_constrain, const bool is_using_road_constrain,
@@ -211,7 +214,7 @@ private:
     const std::vector<ConstrainRectangle> & only_smooth_constrains,
     const std::vector<geometry_msgs::msg::Point> & interpolated_points,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    DebugData & debug_data) const;
+    std::shared_ptr<DebugData> debug_data_ptr) const;
 
   bool isPreFixIdx(
     const int target_idx, const int farthest_point_idx, const int num_fixed,
@@ -225,7 +228,7 @@ private:
     const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & input_path,
     const std::vector<geometry_msgs::msg::Point> & interpolated_points, const int num_fixed_points,
     const int farthest_point_idx, const int straight_idx, const cv::Mat & clearance_map,
-    const cv::Mat & only_objects_clearance_map, DebugData & debug_data);
+    const cv::Mat & only_objects_clearance_map, std::shared_ptr<DebugData> debug_data_ptr);
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectangleVec(
     const autoware_auto_planning_msgs::msg::Path & path,
@@ -257,7 +260,7 @@ private:
   getOptimizedTrajectory(
     const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
     const CandidatePoints & candidate_points, const cv::Mat & clearance_map,
-    const cv::Mat & only_objects_clearance_map, DebugData & debug_data);
+    const cv::Mat & only_objects_clearance_map, std::shared_ptr<DebugData> debug_data_ptr);
 
   void updateConstrain(
     const std::vector<geometry_msgs::msg::Point> & interpolated_points,
@@ -277,7 +280,7 @@ private:
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
     const std::unique_ptr<Trajectories> & prev_trajs, const cv::Mat & drivable_area,
-    const nav_msgs::msg::MapMetaData & map_info, DebugData & debug_data);
+    const nav_msgs::msg::MapMetaData & map_info, std::shared_ptr<DebugData> debug_data_ptr);
 
   bool isPointInsideDrivableArea(
     const geometry_msgs::msg::Point & point, const cv::Mat & drivable_area,
@@ -294,7 +297,7 @@ private:
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> calculateTrajectory(
     const std::vector<geometry_msgs::msg::Point> & padded_interpolated_points,
     const std::vector<ConstrainRectangle> & constrain_rectangles, const int farthest_idx,
-    const OptMode & opt_mode);
+    const OptMode & opt_mode, std::shared_ptr<DebugData> debug_data_ptr);
 
   // TODO(murooka) refactor this when enable_avoidance becomes true
   FOAData getFOAData(
@@ -310,7 +313,7 @@ public:
     const bool enable_avoidance, const geometry_msgs::msg::Pose & ego_pose,
     const autoware_auto_planning_msgs::msg::Path & path,
     const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & cv_maps,
-    DebugData & debug_data);
+    std::shared_ptr<DebugData> debug_data_ptr);
 };
 
 #endif  // OBSTACLE_AVOIDANCE_PLANNER__EB_PATH_OPTIMIZER_HPP_
