@@ -57,7 +57,7 @@ private:
   int64_t m_exitflag;
 
   // Runs the solver on the stored problem.
-  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t> solve();
+  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t, int64_t> solve();
 
 public:
   /// \brief Constructor without problem formulation
@@ -99,7 +99,7 @@ public:
   /// \details        std::vector<float> param = std::get<0>(result);
   /// \details        float64_t x_0 = param[0];
   /// \details        float64_t x_1 = param[1];
-  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t> optimize();
+  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t, int64_t> optimize();
 
   /// \brief Solves convex quadratic programs (QPs) using the OSQP solver.
   /// \return The function returns a tuple containing the solution as two float vectors.
@@ -117,7 +117,7 @@ public:
   /// \details        std::vector<float> param = std::get<0>(result);
   /// \details        float64_t x_0 = param[0];
   /// \details        float64_t x_1 = param[1];
-  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t> optimize(
+  std::tuple<std::vector<float64_t>, std::vector<float64_t>, int64_t, int64_t, int64_t> optimize(
     const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
     const std::vector<float64_t> & l, const std::vector<float64_t> & u);
 
