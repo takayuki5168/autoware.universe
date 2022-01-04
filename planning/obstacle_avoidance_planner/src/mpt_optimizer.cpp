@@ -814,17 +814,24 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   debug_data_ptr->msg_stream << "          " << "initOsqp" <<
     ":= " << stop_watch_.toc("initOsqp")  << " [ms]\n";
 
+  // solve
   stop_watch_.tic("solveOsqp");
   const auto result = osqp_solver_ptr_->optimize();
   debug_data_ptr->msg_stream << "          " << "solveOsqp" <<
     ":= " << stop_watch_.toc("solveOsqp")  << " [ms]\n";
 
-  int solution_status = std::get<3>(result);
+  // check solution status
+  const int solution_status = std::get<3>(result);
   if (solution_status != 1) {
     util::logOSQPSolutionStatus(solution_status);
     return boost::none;
   }
 
+  // print iteration
+  const int iteration_status = std::get<4>(result);
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("iteration"), iteration_status);
+
+  // get result
   std::vector<double> result_vec = std::get<0>(result);
 
   const size_t N_ref = ref_points.size();
