@@ -56,6 +56,17 @@ struct UtilRectangle
   int area = 0;
 };
 
+struct QPParam
+{
+  int max_iteration;
+  double eps_abs;
+  double eps_rel;
+  double eps_abs_for_extending;
+  double eps_rel_for_extending;
+  double eps_abs_for_visualizing;
+  double eps_rel_for_visualizing;
+};
+
 struct EBParam
 {
   bool is_getting_constraints_close2path_points;
@@ -75,6 +86,12 @@ struct EBParam
   double keep_space_shape_x;
   double keep_space_shape_y;
   double max_lon_space_for_driveable_constraint;
+  QPParam qp_param;
+
+  int num_joint_buffer_points;
+  int num_joint_buffer_points_for_extending;
+  int num_offset_for_begin_idx;
+  double delta_arc_length_for_optimization;
 };
 
 struct VehicleParam
@@ -84,8 +101,8 @@ struct VehicleParam
   double width;
   double rear_overhang;
   double front_overhang;
-  double max_steer_rad;
-  double steer_tau;
+  // double max_steer_rad;
+  // double steer_tau;
 };
 
 struct ConstrainRectangle
@@ -192,46 +209,32 @@ struct TrajectoryParam
   bool is_avoiding_pedestrian;
   bool is_avoiding_animal;
   int num_sampling_points;
-  int num_joint_buffer_points;
-  int num_joint_buffer_points_for_extending;
-  int num_offset_for_begin_idx;
-  int num_fix_points_for_extending;
-  double delta_arc_length_for_optimization;
-  double delta_arc_length_for_mpt_points;
   double delta_arc_length_for_trajectory;
   double delta_dist_threshold_for_closest_point;
   double delta_yaw_threshold_for_closest_point;
   double delta_yaw_threshold_for_straight;
   double trajectory_length;
   double forward_fixing_distance;
-  double forward_fixing_mpt_min_distance;
-  double forward_fixing_mpt_time;
   double backward_fixing_distance;
   double max_avoiding_ego_velocity_ms;
   double max_avoiding_objects_velocity_ms;
   double center_line_width;
   double acceleration_for_non_deceleration_range;
+  int num_fix_points_for_extending;
   double max_dist_for_extending_end_point;
-};
-
-struct QPParam
-{
-  int max_iteration;
-  double eps_abs;
-  double eps_rel;
-  double eps_abs_for_extending;
-  double eps_rel_for_extending;
-  double eps_abs_for_visualizing;
-  double eps_rel_for_visualizing;
 };
 
 struct MPTParam
 {
   bool is_hard_fixing_terminal_point;
-  size_t num_curvature_sampling_points;
+  int num_curvature_sampling_points;
 
   std::vector<double> avoiding_circle_offsets;  // from base_link
   double avoiding_circle_radius;
+
+  double delta_arc_length_for_mpt_points;
+  double forward_fixing_mpt_min_distance;
+  double forward_fixing_mpt_time;
 
   double hard_clearance_from_road;
   double soft_clearance_from_road;
@@ -262,7 +265,8 @@ struct MPTParam
 
   double zero_ff_steer_angle;
   double optimization_center_offset;
-  double steer_limit;
+  double max_steer_rad;
+  double steer_tau;
   int avoiding_constraint_type;
   bool l_inf_norm;
   bool two_step_soft_constraint;

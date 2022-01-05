@@ -150,8 +150,7 @@ MPTOptimizer::MPTOptimizer(
   mpt_param_ptr_ = std::make_unique<MPTParam>(mpt_param);
 
   vehicle_model_ptr_ = std::make_unique<KinematicsBicycleModel>(
-    vehicle_param_ptr_->wheelbase, vehicle_param_ptr_->steer_tau,
-    vehicle_param_ptr_->max_steer_rad);
+    vehicle_param_ptr_->wheelbase, mpt_param_ptr_->steer_tau, mpt_param_ptr_->max_steer_rad);
 }
 
 boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajectory(
@@ -271,10 +270,10 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
       if (is_planning_from_ego) {
         // interpolate and crop backward
         const auto interpolated_points = interpolation_utils::getInterpolatedPoints(
-          points, traj_param_ptr_->delta_arc_length_for_mpt_points);
+          points, mpt_param_ptr_->delta_arc_length_for_mpt_points);
         const auto cropped_interpolated_points = points_utils::clipBackwardPoints(
           interpolated_points, current_pose_.position, traj_param_ptr_->backward_fixing_distance,
-          traj_param_ptr_->delta_arc_length_for_mpt_points);
+          mpt_param_ptr_->delta_arc_length_for_mpt_points);
 
         auto cropped_ref_points =
           points_utils::convertToReferencePoints(cropped_interpolated_points);
@@ -294,10 +293,10 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
       if (fixed_ref_points.empty()) {
         // interpolate and crop backward
         const auto interpolated_points = interpolation_utils::getInterpolatedPoints(
-          points, traj_param_ptr_->delta_arc_length_for_mpt_points);
+          points, mpt_param_ptr_->delta_arc_length_for_mpt_points);
         const auto cropped_interpolated_points = points_utils::clipBackwardPoints(
           interpolated_points, current_pose_.position, traj_param_ptr_->backward_fixing_distance,
-          traj_param_ptr_->delta_arc_length_for_mpt_points);
+          mpt_param_ptr_->delta_arc_length_for_mpt_points);
 
         return points_utils::convertToReferencePoints(cropped_interpolated_points);
       }
@@ -311,9 +310,9 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
 
       const double offset = tier4_autoware_utils::calcLongitudinalOffsetToSegment(
                               non_fixed_traj_points, 0, fixed_ref_points.back().p) +
-                            traj_param_ptr_->delta_arc_length_for_mpt_points;
+                            mpt_param_ptr_->delta_arc_length_for_mpt_points;
       const auto non_fixed_interpolated_traj_points = interpolation_utils::getInterpolatedPoints(
-        non_fixed_traj_points, traj_param_ptr_->delta_arc_length_for_mpt_points, offset);
+        non_fixed_traj_points, mpt_param_ptr_->delta_arc_length_for_mpt_points, offset);
       const auto non_fixed_ref_points =
         points_utils::convertToReferencePoints(non_fixed_interpolated_traj_points);
 
@@ -340,7 +339,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po0");
     const double ref_length_with_margin =
       traj_param_ptr_->num_sampling_points *
-      traj_param_ptr_->delta_arc_length_for_mpt_points;  // + 3.0;
+      mpt_param_ptr_->delta_arc_length_for_mpt_points;  // + 3.0;
     ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length_with_margin);
     // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po1");
 
@@ -404,7 +403,7 @@ std::vector<ReferencePoint> MPTOptimizer::getFixedReferencePoints(
   // calculate begin_prev_ref_idx
   const int begin_prev_ref_idx = [&]() {
     const int backward_fixing_num =
-      traj_param_ptr_->backward_fixing_distance / traj_param_ptr_->delta_arc_length_for_mpt_points;
+      traj_param_ptr_->backward_fixing_distance / mpt_param_ptr_->delta_arc_length_for_mpt_points;
 
     return std::max(0, nearest_prev_ref_idx - backward_fixing_num);
   }();
@@ -412,11 +411,11 @@ std::vector<ReferencePoint> MPTOptimizer::getFixedReferencePoints(
   // calculate end_prev_ref_idx
   const int end_prev_ref_idx = [&]() {
     const double forward_fixed_length = std::max(
-      current_vel_ * traj_param_ptr_->forward_fixing_mpt_time,
-      traj_param_ptr_->forward_fixing_mpt_min_distance);
+      current_vel_ * mpt_param_ptr_->forward_fixing_mpt_time,
+      mpt_param_ptr_->forward_fixing_mpt_min_distance);
 
     const int forward_fixing_num =
-      forward_fixed_length / traj_param_ptr_->delta_arc_length_for_mpt_points;
+      forward_fixed_length / mpt_param_ptr_->delta_arc_length_for_mpt_points;
     return std::min(
       static_cast<int>(prev_ref_points.size()) - 1, nearest_prev_ref_idx + forward_fixing_num);
   }();
@@ -485,9 +484,10 @@ void MPTOptimizer::calcCurvature(std::vector<ReferencePoint> & ref_points) const
 
   /* calculate curvature by circle fitting from three points */
   size_t max_smoothing_num = static_cast<size_t>(std::floor(0.5 * (num_points - 1)));
-  size_t L = std::min(mpt_param_ptr_->num_curvature_sampling_points, max_smoothing_num);
-  auto curvatures =
-    points_utils::calcCurvature(ref_points, mpt_param_ptr_->num_curvature_sampling_points);
+  size_t L =
+    std::min(static_cast<size_t>(mpt_param_ptr_->num_curvature_sampling_points), max_smoothing_num);
+  auto curvatures = points_utils::calcCurvature(
+    ref_points, static_cast<size_t>(mpt_param_ptr_->num_curvature_sampling_points));
   for (size_t i = L; i < num_points - L; ++i) {
     if (!ref_points.at(i).fix_kinematics) {
       ref_points.at(i).k = curvatures.at(i);
@@ -539,7 +539,7 @@ void MPTOptimizer::calcExtraPoints(std::vector<ReferencePoint> & ref_points) con
     ref_points.at(i).near_objects = [&]() {
       const int avoidance_check_steps =
         mpt_param_ptr_->near_objects_length /
-        traj_param_ptr_->delta_arc_length_for_mpt_points;  // TODO(murooka) use ros param
+        mpt_param_ptr_->delta_arc_length_for_mpt_points;  // TODO(murooka) use ros param
 
       const int avoidance_check_begin_idx =
         std::max(0, static_cast<int>(i) - avoidance_check_steps);
@@ -1619,8 +1619,8 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
   // steer max limit
   if (is_hard_steer_limit_) {
     A.block(A_rows_end, N_kinematics, N_u, N_u) = Eigen::MatrixXd::Identity(N_u, N_u);
-    lb.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, -mpt_param_ptr_->steer_limit);
-    ub.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, mpt_param_ptr_->steer_limit);
+    lb.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, -mpt_param_ptr_->max_steer_rad);
+    ub.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, mpt_param_ptr_->max_steer_rad);
 
     A_rows_end += N_u;
   }

@@ -117,9 +117,8 @@ private:
   std::unique_ptr<MPTOptimizer> mpt_optimizer_ptr_;
 
   // params
-  std::unique_ptr<QPParam> qp_param_ptr_;
   std::unique_ptr<TrajectoryParam> traj_param_ptr_;
-  std::unique_ptr<EBParam> constrain_param_ptr_;
+  std::unique_ptr<EBParam> eb_param_ptr_;
   std::unique_ptr<VehicleParam> vehicle_param_ptr_;
   std::unique_ptr<MPTParam> mpt_param_ptr_;
   int visualize_sampling_num_;
