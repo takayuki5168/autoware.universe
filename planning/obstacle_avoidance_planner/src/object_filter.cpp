@@ -61,7 +61,7 @@ bool ObjectFilter::isAvoidingObject(
   if (!isAvoidingObjectType(object, traj_param)) {
     return false;
   }
-  const auto image_point = util::transformMapToOptionalImage(
+  const auto image_point = geometry_utils::transformMapToOptionalImage(
     object.kinematics.initial_pose_with_covariance.pose.position, map_info);
   if (!image_point) {
     return false;
@@ -70,7 +70,7 @@ bool ObjectFilter::isAvoidingObject(
   const int nearest_idx = tier4_autoware_utils::findNearestIndex(
     path_points, object.kinematics.initial_pose_with_covariance.pose.position);
   const auto nearest_path_point = path_points[nearest_idx];
-  const auto rel_p = util::transformToRelativeCoordinate2D(
+  const auto rel_p = geometry_utils::transformToRelativeCoordinate2D(
     object.kinematics.initial_pose_with_covariance.pose.position, nearest_path_point.pose);
   // skip object located back the beginning of path points
   if (nearest_idx == 0 && rel_p.x < 0) {
@@ -88,7 +88,7 @@ bool ObjectFilter::isAvoidingObject(
   const double vel = std::sqrt(twist.x * twist.x + twist.y * twist.y + twist.z * twist.z);
   /*
   const auto nearest_path_point_image =
-    util::transformMapToOptionalImage(nearest_path_point.pose.position, map_info);
+    geometry_utils::transformMapToOptionalImage(nearest_path_point.pose.position, map_info);
   if (!nearest_path_point_image) {
     return false;
   }
