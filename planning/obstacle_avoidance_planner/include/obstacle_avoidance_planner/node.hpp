@@ -15,6 +15,7 @@
 #define OBSTACLE_AVOIDANCE_PLANNER__NODE_HPP_
 
 #include "obstacle_avoidance_planner/common_structs.hpp"
+#include "obstacle_avoidance_planner/costmap_generator.hpp"
 #include "obstacle_avoidance_planner/eb_path_optimizer.hpp"
 #include "obstacle_avoidance_planner/mpt_optimizer.hpp"
 #include "opencv2/core.hpp"
@@ -46,6 +47,47 @@
 #include <mutex>
 #include <vector>
 
+namespace
+{
+template <typename T>
+double lerpTwistX(
+  const T & points, const geometry_msgs::msg::Point & target_pos, const size_t closest_seg_idx)
+{
+  constexpr double epsilon = 1e-6;
+
+  const double closest_to_target_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, target_pos);
+  const double seg_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, closest_seg_idx + 1);
+
+  const double closest_vel = points[closest_seg_idx].longitudinal_velocity_mps;
+  const double next_vel = points[closest_seg_idx + 1].longitudinal_velocity_mps;
+
+  return std::abs(seg_dist) < epsilon
+           ? next_vel
+           : interpolation::lerp(closest_vel, next_vel, closest_to_target_dist / seg_dist);
+}
+
+template <typename T>
+double lerpPoseZ(
+  const T & points, const geometry_msgs::msg::Point & target_pos, const size_t closest_seg_idx)
+{
+  constexpr double epsilon = 1e-6;
+
+  const double closest_to_target_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, target_pos);
+  const double seg_dist =
+    tier4_autoware_utils::calcSignedArcLength(points, closest_seg_idx, closest_seg_idx + 1);
+
+  const double closest_z = points[closest_seg_idx].pose.position.z;
+  const double next_z = points[closest_seg_idx + 1].pose.position.z;
+
+  return std::abs(seg_dist) < epsilon
+           ? next_z
+           : interpolation::lerp(closest_z, next_z, closest_to_target_dist / seg_dist);
+}
+}  // namespace
+
 class ObstacleAvoidancePlanner : public rclcpp::Node
 {
 private:
@@ -70,6 +112,7 @@ private:
   double distance_for_path_shape_change_detection_;
 
   // logic
+  std::unique_ptr<CostmapGenerator> costmap_generator_ptr_;
   std::unique_ptr<EBPathOptimizer> eb_path_optimizer_ptr_;
   std::unique_ptr<MPTOptimizer> mpt_optimizer_ptr_;
 
@@ -182,6 +225,11 @@ private:
 
   rcl_interfaces::msg::SetParametersResult paramCallback(
     const std::vector<rclcpp::Parameter> & parameters);
+
+  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> alignVelocityWithPoints(
+    const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & base_traj_points,
+    const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & points,
+    const int zero_vel_traj_idx) const;
 
 public:
   explicit ObstacleAvoidancePlanner(const rclcpp::NodeOptions & node_options);

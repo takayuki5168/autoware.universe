@@ -14,7 +14,7 @@
 
 #include "obstacle_avoidance_planner/mpt_optimizer.hpp"
 
-#include "obstacle_avoidance_planner/util.hpp"
+#include "obstacle_avoidance_planner/utils.hpp"
 #include "obstacle_avoidance_planner/vehicle_model/vehicle_model_bicycle_kinematics.hpp"
 #include "tf2/utils.h"
 
@@ -85,8 +85,10 @@ double calcOverlappedBounds(
   lb_pos.x = front_point.position.x + front_bounds_candidate.lower_bound * std::cos(avoiding_yaw);
   lb_pos.y = front_point.position.y + front_bounds_candidate.lower_bound * std::sin(avoiding_yaw);
 
-  const double projected_ub_y = util::transformToRelativeCoordinate2D(ub_pos, prev_front_point).y;
-  const double projected_lb_y = util::transformToRelativeCoordinate2D(lb_pos, prev_front_point).y;
+  const double projected_ub_y =
+    geometry_utils::transformToRelativeCoordinate2D(ub_pos, prev_front_point).y;
+  const double projected_lb_y =
+    geometry_utils::transformToRelativeCoordinate2D(lb_pos, prev_front_point).y;
 
   const double min_ub = std::min(projected_ub_y, prev_front_continuous_bounds.upper_bound);
   const double max_lb = std::max(projected_lb_y, prev_front_continuous_bounds.lower_bound);
@@ -268,13 +270,14 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
         mpt_param_ptr_->plan_from_ego && std::abs(current_vel_) < epsilon;
       if (is_planning_from_ego) {
         // interpolate and crop backward
-        const auto interpolated_points =
-          util::getInterpolatedPoints(points, traj_param_ptr_->delta_arc_length_for_mpt_points);
-        const auto cropped_interpolated_points = util::clipBackwardPoints(
+        const auto interpolated_points = interpolation_utils::getInterpolatedPoints(
+          points, traj_param_ptr_->delta_arc_length_for_mpt_points);
+        const auto cropped_interpolated_points = points_utils::clipBackwardPoints(
           interpolated_points, current_pose_.position, traj_param_ptr_->backward_fixing_distance,
           traj_param_ptr_->delta_arc_length_for_mpt_points);
 
-        auto cropped_ref_points = util::convertToReferencePoints(cropped_interpolated_points);
+        auto cropped_ref_points =
+          points_utils::convertToReferencePoints(cropped_interpolated_points);
 
         // assign fix kinematics
         const size_t nearest_ref_idx =
@@ -290,13 +293,13 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
       // if no fixed_ref_points
       if (fixed_ref_points.empty()) {
         // interpolate and crop backward
-        const auto interpolated_points =
-          util::getInterpolatedPoints(points, traj_param_ptr_->delta_arc_length_for_mpt_points);
-        const auto cropped_interpolated_points = util::clipBackwardPoints(
+        const auto interpolated_points = interpolation_utils::getInterpolatedPoints(
+          points, traj_param_ptr_->delta_arc_length_for_mpt_points);
+        const auto cropped_interpolated_points = points_utils::clipBackwardPoints(
           interpolated_points, current_pose_.position, traj_param_ptr_->backward_fixing_distance,
           traj_param_ptr_->delta_arc_length_for_mpt_points);
 
-        return util::convertToReferencePoints(cropped_interpolated_points);
+        return points_utils::convertToReferencePoints(cropped_interpolated_points);
       }
 
       // calc non fixed traj points
@@ -309,10 +312,10 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
       const double offset = tier4_autoware_utils::calcLongitudinalOffsetToSegment(
                               non_fixed_traj_points, 0, fixed_ref_points.back().p) +
                             traj_param_ptr_->delta_arc_length_for_mpt_points;
-      const auto non_fixed_interpolated_traj_points = util::getInterpolatedPoints(
+      const auto non_fixed_interpolated_traj_points = interpolation_utils::getInterpolatedPoints(
         non_fixed_traj_points, traj_param_ptr_->delta_arc_length_for_mpt_points, offset);
       const auto non_fixed_ref_points =
-        util::convertToReferencePoints(non_fixed_interpolated_traj_points);
+        points_utils::convertToReferencePoints(non_fixed_interpolated_traj_points);
 
       // make ref points
       auto ref_points = fixed_ref_points;
@@ -338,7 +341,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     const double ref_length_with_margin =
       traj_param_ptr_->num_sampling_points *
       traj_param_ptr_->delta_arc_length_for_mpt_points;  // + 3.0;
-    ref_points = util::clipForwardPoints(ref_points, 0, ref_length_with_margin);
+    ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length_with_margin);
     // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po1");
 
     // set bounds information
@@ -353,7 +356,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po2");
     const double ref_length =
       traj_param_ptr_->num_sampling_points * traj_param_ptr_->delta_arc_length_for_mpt_points;
-    ref_points = util::clipForwardPoints(ref_points, 0, ref_length);
+    ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length);
     RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po3");
     */
 
@@ -372,7 +375,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     tier4_autoware_utils::findNearestIndex(ref_points, begin_smoothed_point.position);
   const double ref_length =
     traj_param_ptr_->num_sampling_points * traj_param_ptr_->delta_arc_length_for_mpt_points;
-  auto truncated_points = util::clipForwardPoints(ref_points, begin_idx, ref_length);
+  auto truncated_points = points_utils::clipForwardPoints(ref_points, begin_idx, ref_length);
   */
 
   debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch_.toc(__func__)
@@ -483,7 +486,8 @@ void MPTOptimizer::calcCurvature(std::vector<ReferencePoint> & ref_points) const
   /* calculate curvature by circle fitting from three points */
   size_t max_smoothing_num = static_cast<size_t>(std::floor(0.5 * (num_points - 1)));
   size_t L = std::min(mpt_param_ptr_->num_curvature_sampling_points, max_smoothing_num);
-  auto curvatures = util::calcCurvature(ref_points, mpt_param_ptr_->num_curvature_sampling_points);
+  auto curvatures =
+    points_utils::calcCurvature(ref_points, mpt_param_ptr_->num_curvature_sampling_points);
   for (size_t i = L; i < num_points - L; ++i) {
     if (!ref_points.at(i).fix_kinematics) {
       ref_points.at(i).k = curvatures.at(i);
@@ -518,7 +522,7 @@ void MPTOptimizer::calcExtraPoints(std::vector<ReferencePoint> & ref_points) con
   for (size_t i = 0; i < ref_points.size(); ++i) {
     // alpha
     const double front_wheel_s = ref_points.at(i).s + vehicle_param_ptr_->wheelbase;
-    const int front_wheel_nearest_idx = util::getNearestIdx(ref_points, front_wheel_s, i);
+    const int front_wheel_nearest_idx = points_utils::getNearestIdx(ref_points, front_wheel_s, i);
     const auto front_wheel_pos = ref_points.at(front_wheel_nearest_idx).p;
 
     const bool are_too_close_points =
@@ -592,7 +596,7 @@ boost::optional<MPTOptimizer::MPTMatrix> MPTOptimizer::generateMPTMatrix(
   geometry_msgs::msg::Pose last_ref_pose;
   last_ref_pose.position = ref_points.back().p;
   last_ref_pose.orientation = tier4_autoware_utils::createQuaternionFromYaw(ref_points.back().yaw);
-  const auto last_extended_point = util::getLastExtendedPoint(
+  const auto last_extended_point = points_utils::getLastExtendedPoint(
     last_path_pose, last_ref_pose, traj_param_ptr_->delta_yaw_threshold_for_closest_point,
     traj_param_ptr_->max_dist_for_extending_end_point);
 
@@ -826,7 +830,7 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   // check solution status
   const int solution_status = std::get<3>(result);
   if (solution_status != 1) {
-    util::logOSQPSolutionStatus(solution_status);
+    utils::logOSQPSolutionStatus(solution_status);
     return boost::none;
   }
 
@@ -1288,7 +1292,7 @@ boost::optional<double> MPTOptimizer::getClearance(
   const cv::Mat & clearance_map, const geometry_msgs::msg::Point & map_point,
   const nav_msgs::msg::MapMetaData & map_info) const
 {
-  const auto image_point = util::transformMapToOptionalImage(map_point, map_info);
+  const auto image_point = geometry_utils::transformMapToOptionalImage(map_point, map_info);
   if (!image_point) {
     return boost::none;
   }

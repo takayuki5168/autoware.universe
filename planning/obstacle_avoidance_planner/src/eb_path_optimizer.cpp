@@ -14,7 +14,7 @@
 
 #include "obstacle_avoidance_planner/eb_path_optimizer.hpp"
 
-#include "obstacle_avoidance_planner/util.hpp"
+#include "obstacle_avoidance_planner/utils.hpp"
 
 #include "geometry_msgs/msg/vector3.hpp"
 
@@ -155,7 +155,8 @@ EBPathOptimizer::getOptimizedTrajectory(
     candidate_points.non_fixed_points.end());
 
   const std::vector<geometry_msgs::msg::Point> interpolated_points =
-    util::getInterpolatedPoints(full_points, traj_param_.delta_arc_length_for_optimization);
+    interpolation_utils::getInterpolatedPoints(
+      full_points, traj_param_.delta_arc_length_for_optimization);
   if (interpolated_points.empty()) {
     return boost::none;
   }
@@ -217,19 +218,19 @@ std::vector<double> EBPathOptimizer::solveQP(const OptMode & opt_mode)
     osqp_solver_ptr_->updateEpsAbs(qp_param_.eps_abs);
     auto result = osqp_solver_ptr_->optimize();
     optimized_points = std::get<0>(result);
-    util::logOSQPSolutionStatus(std::get<3>(result));
+    utils::logOSQPSolutionStatus(std::get<3>(result));
   } else if (opt_mode == OptMode::Extending) {
     ex_osqp_solver_ptr_->updateEpsAbs(qp_param_.eps_abs_for_extending);
     ex_osqp_solver_ptr_->updateEpsRel(qp_param_.eps_rel_for_extending);
     auto result = ex_osqp_solver_ptr_->optimize();
     optimized_points = std::get<0>(result);
-    util::logOSQPSolutionStatus(std::get<3>(result));
+    utils::logOSQPSolutionStatus(std::get<3>(result));
   } else if (opt_mode == OptMode::Visualizing) {
     vis_osqp_solver_ptr_->updateEpsAbs(qp_param_.eps_abs_for_visualizing);
     vis_osqp_solver_ptr_->updateEpsRel(qp_param_.eps_rel_for_visualizing);
     auto result = vis_osqp_solver_ptr_->optimize();
     optimized_points = std::get<0>(result);
-    util::logOSQPSolutionStatus(std::get<3>(result));
+    utils::logOSQPSolutionStatus(std::get<3>(result));
   }
   return optimized_points;
 }
@@ -359,7 +360,7 @@ bool EBPathOptimizer::isPointInsideDrivableArea(
 {
   bool is_inside = true;
   unsigned char occupancy_value = std::numeric_limits<unsigned char>::max();
-  const auto image_point = util::transformMapToOptionalImage(point, map_info);
+  const auto image_point = geometry_utils::transformMapToOptionalImage(point, map_info);
   if (image_point) {
     occupancy_value = drivable_area.ptr<unsigned char>(
       static_cast<int>(image_point.get().y))[static_cast<int>(image_point.get().x)];
@@ -406,7 +407,7 @@ int EBPathOptimizer::getEndPathIdxInsideArea(
     geometry_msgs::msg::Point p = path_points[i].pose.position;
     geometry_msgs::msg::Point top_image_point;
     end_path_idx = i;
-    if (util::transformMapToImage(p, map_info, top_image_point)) {
+    if (geometry_utils::transformMapToImage(p, map_info, top_image_point)) {
       const unsigned char value = drivable_area.ptr<unsigned char>(
         static_cast<int>(top_image_point.y))[static_cast<int>(top_image_point.x)];
       if (value < epsilon_) {
@@ -423,18 +424,18 @@ int EBPathOptimizer::getEndPathIdxInsideArea(
     rel_top_left_point.x = vehicle_param_.length;
     rel_top_left_point.y = vehicle_param_.width * 0.5;
     geometry_msgs::msg::Point abs_top_left_point =
-      util::transformToAbsoluteCoordinate2D(rel_top_left_point, path_points[i].pose);
+      geometry_utils::transformToAbsoluteCoordinate2D(rel_top_left_point, path_points[i].pose);
     geometry_msgs::msg::Point top_left_image_point;
 
     geometry_msgs::msg::Point rel_top_right_point;
     rel_top_right_point.x = vehicle_param_.length;
     rel_top_right_point.y = -vehicle_param_.width * 0.5;
     geometry_msgs::msg::Point abs_top_right_point =
-      util::transformToAbsoluteCoordinate2D(rel_top_right_point, path_points[i].pose);
+      geometry_utils::transformToAbsoluteCoordinate2D(rel_top_right_point, path_points[i].pose);
     geometry_msgs::msg::Point top_right_image_point;
     if (
-      util::transformMapToImage(abs_top_left_point, map_info, top_left_image_point) &&
-      util::transformMapToImage(abs_top_right_point, map_info, top_right_image_point)) {
+      geometry_utils::transformMapToImage(abs_top_left_point, map_info, top_left_image_point) &&
+      geometry_utils::transformMapToImage(abs_top_right_point, map_info, top_right_image_point)) {
       const unsigned char top_left_occupancy_value = drivable_area.ptr<unsigned char>(
         static_cast<int>(top_left_image_point.y))[static_cast<int>(top_left_image_point.x)];
       const unsigned char top_right_occupancy_value = drivable_area.ptr<unsigned char>(
@@ -455,7 +456,8 @@ int EBPathOptimizer::getNumFixedPoints(
   int num_fixed_points = 0;
   if (!fixed_points.empty() && !interpolated_points.empty()) {
     std::vector<geometry_msgs::msg::Point> interpolated_points =
-      util::getInterpolatedPoints(fixed_points, traj_param_.delta_arc_length_for_optimization);
+      interpolation_utils::getInterpolatedPoints(
+        fixed_points, traj_param_.delta_arc_length_for_optimization);
     num_fixed_points = interpolated_points.size();
   }
   num_fixed_points = std::min(num_fixed_points, farthest_idx);
@@ -477,10 +479,10 @@ EBPathOptimizer::convertOptimizedPointsToTrajectory(
   }
   for (size_t i = 0; i < traj_points.size(); i++) {
     if (i > 0) {
-      traj_points[i].pose.orientation = util::getQuaternionFromPoints(
+      traj_points[i].pose.orientation = geometry_utils::getQuaternionFromPoints(
         traj_points[i].pose.position, traj_points[i - 1].pose.position);
     } else if (i == 0 && traj_points.size() > 1) {
-      traj_points[i].pose.orientation = util::getQuaternionFromPoints(
+      traj_points[i].pose.orientation = geometry_utils::getQuaternionFromPoints(
         traj_points[i + 1].pose.position, traj_points[i].pose.position);
     }
   }
@@ -493,7 +495,7 @@ boost::optional<std::vector<ConstrainRectangle>> EBPathOptimizer::getConstrainRe
   const int farthest_point_idx, const int straight_idx,
   [[maybe_unused]] const cv::Mat & clearance_map, const cv::Mat & only_objects_clearance_map)
 {
-  auto curvatures = util::calcCurvature(interpolated_points, 10);
+  auto curvatures = points_utils::calcCurvature(interpolated_points, 10);
   const nav_msgs::msg::MapMetaData map_info = path.drivable_area.info;
   std::vector<ConstrainRectangle> smooth_constrain_rects(traj_param_.num_sampling_points);
   for (int i = 0; i < traj_param_.num_sampling_points; i++) {
@@ -772,7 +774,7 @@ bool EBPathOptimizer::isClose2Object(
   const geometry_msgs::msg::Point & point, const nav_msgs::msg::MapMetaData & map_info,
   const cv::Mat & only_objects_clearance_map, const double distance_threshold) const
 {
-  const auto image_point = util::transformMapToOptionalImage(point, map_info);
+  const auto image_point = geometry_utils::transformMapToOptionalImage(point, map_info);
   if (!image_point) {
     return false;
   }
@@ -822,7 +824,7 @@ EBPathOptimizer::Rectangle EBPathOptimizer::getAbsShapeRectangle(
   const geometry_msgs::msg::Pose & origin) const
 {
   geometry_msgs::msg::Point abs_target_point =
-    util::transformToAbsoluteCoordinate2D(offset_point, origin);
+    geometry_utils::transformToAbsoluteCoordinate2D(offset_point, origin);
 
   geometry_msgs::msg::Point abs_top_left;
   abs_top_left.x = (rel_shape_rectangle_points.top_left.x + abs_target_point.x);
@@ -855,10 +857,10 @@ geometry_msgs::msg::Pose EBPathOptimizer::getOriginPose(
   geometry_msgs::msg::Pose pose;
   pose.position = interpolated_points[interpolated_idx];
   if (interpolated_idx > 0) {
-    pose.orientation = util::getQuaternionFromPoints(
+    pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[interpolated_idx], interpolated_points[interpolated_idx - 1]);
   } else if (interpolated_idx == 0 && interpolated_points.size() > 1) {
-    pose.orientation = util::getQuaternionFromPoints(
+    pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[interpolated_idx + 1], interpolated_points[interpolated_idx]);
   }
   const auto opt_nearest_id = tier4_autoware_utils::findNearestIndex(
@@ -879,10 +881,10 @@ EBPathOptimizer::Anchor EBPathOptimizer::getAnchor(
   geometry_msgs::msg::Pose pose;
   pose.position = interpolated_points[interpolated_idx];
   if (interpolated_idx > 0) {
-    pose.orientation = util::getQuaternionFromPoints(
+    pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[interpolated_idx], interpolated_points[interpolated_idx - 1]);
   } else if (interpolated_idx == 0 && interpolated_points.size() > 1) {
-    pose.orientation = util::getQuaternionFromPoints(
+    pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[interpolated_idx + 1], interpolated_points[interpolated_idx]);
   }
   const auto opt_nearest_idx = tier4_autoware_utils::findNearestIndex(
@@ -904,7 +906,7 @@ EBPathOptimizer::getOccupancyPoints(
   const nav_msgs::msg::MapMetaData & map_info) const
 {
   geometry_msgs::msg::Point image_point;
-  if (!util::transformMapToImage(origin.position, map_info, image_point)) {
+  if (!geometry_utils::transformMapToImage(origin.position, map_info, image_point)) {
     return boost::none;
   }
   const float clearance = std::max(
@@ -939,7 +941,7 @@ EBPathOptimizer::getOccupancyPoints(
       relative_point.x = x;
       relative_point.y = y;
       geometry_msgs::msg::Point abs_point =
-        util::transformToAbsoluteCoordinate2D(relative_point, origin);
+        geometry_utils::transformToAbsoluteCoordinate2D(relative_point, origin);
       const int x_idx = x_side_length - x_idx_in_occupancy_map - 1;
       const int y_idx = y_side_length - y_idx_in_occupancy_map - 1;
       if (x_idx < 0 || x_idx >= x_side_length || y_idx < 0 || y_idx >= y_side_length) {
@@ -972,10 +974,10 @@ EBPathOptimizer::Rectangle EBPathOptimizer::getRelShapeRectangle(
 
   geometry_msgs::msg::Pose tmp_origin;
   tmp_origin.orientation = origin.orientation;
-  top_left = util::transformToAbsoluteCoordinate2D(top_left, tmp_origin);
-  top_right = util::transformToAbsoluteCoordinate2D(top_right, tmp_origin);
-  bottom_left = util::transformToAbsoluteCoordinate2D(bottom_left, tmp_origin);
-  bottom_right = util::transformToAbsoluteCoordinate2D(bottom_right, tmp_origin);
+  top_left = geometry_utils::transformToAbsoluteCoordinate2D(top_left, tmp_origin);
+  top_right = geometry_utils::transformToAbsoluteCoordinate2D(top_right, tmp_origin);
+  bottom_left = geometry_utils::transformToAbsoluteCoordinate2D(bottom_left, tmp_origin);
+  bottom_right = geometry_utils::transformToAbsoluteCoordinate2D(bottom_right, tmp_origin);
   Rectangle rectangle;
   rectangle.top_left = top_left;
   rectangle.top_right = top_right;
@@ -989,7 +991,8 @@ EBPathOptimizer::ConstrainRectangles EBPathOptimizer::getConstrainRectangles(
   const nav_msgs::msg::MapMetaData & map_info) const
 {
   const auto occupancy_points_opt = getOccupancyPoints(anchor.pose, clearance_map, map_info);
-  const auto image_point = util::transformMapToOptionalImage(anchor.pose.position, map_info);
+  const auto image_point =
+    geometry_utils::transformMapToOptionalImage(anchor.pose.position, map_info);
   if (!image_point || !occupancy_points_opt) {
     ConstrainRectangle rectangle =
       getConstrainRectangle(anchor, constrain_param_.clearance_for_joint);
@@ -1049,7 +1052,8 @@ EBPathOptimizer::OccupancyMaps EBPathOptimizer::getOccupancyMaps(
       float top_left_clearance = std::numeric_limits<float>::lowest();
       float top_left_objects_clearance = std::numeric_limits<float>::lowest();
       geometry_msgs::msg::Point top_left_image;
-      if (util::transformMapToImage(abs_shape_rectangles.top_left, map_info, top_left_image)) {
+      if (geometry_utils::transformMapToImage(
+            abs_shape_rectangles.top_left, map_info, top_left_image)) {
         top_left_clearance = clearance_map.ptr<float>(static_cast<int>(
                                top_left_image.y))[static_cast<int>(top_left_image.x)] *
                              map_info.resolution;
@@ -1061,7 +1065,8 @@ EBPathOptimizer::OccupancyMaps EBPathOptimizer::getOccupancyMaps(
       float top_right_clearance = std::numeric_limits<float>::lowest();
       float top_right_objects_clearance = std::numeric_limits<float>::lowest();
       geometry_msgs::msg::Point top_right_image;
-      if (util::transformMapToImage(abs_shape_rectangles.top_right, map_info, top_right_image)) {
+      if (geometry_utils::transformMapToImage(
+            abs_shape_rectangles.top_right, map_info, top_right_image)) {
         top_right_clearance = clearance_map.ptr<float>(static_cast<int>(
                                 top_right_image.y))[static_cast<int>(top_right_image.x)] *
                               map_info.resolution;
@@ -1072,7 +1077,7 @@ EBPathOptimizer::OccupancyMaps EBPathOptimizer::getOccupancyMaps(
       float bottom_left_clearance = std::numeric_limits<float>::lowest();
       float bottom_left_objects_clearance = std::numeric_limits<float>::lowest();
       geometry_msgs::msg::Point bottom_left_image;
-      if (util::transformMapToImage(
+      if (geometry_utils::transformMapToImage(
             abs_shape_rectangles.bottom_left, map_info, bottom_left_image)) {
         bottom_left_clearance = clearance_map.ptr<float>(static_cast<int>(
                                   bottom_left_image.y))[static_cast<int>(bottom_left_image.x)] *
@@ -1085,7 +1090,7 @@ EBPathOptimizer::OccupancyMaps EBPathOptimizer::getOccupancyMaps(
       float bottom_right_clearance = std::numeric_limits<float>::lowest();
       float bottom_right_objects_clearance = std::numeric_limits<float>::lowest();
       geometry_msgs::msg::Point bottom_right_image;
-      if (util::transformMapToImage(
+      if (geometry_utils::transformMapToImage(
             abs_shape_rectangles.bottom_right, map_info, bottom_right_image)) {
         bottom_right_clearance = clearance_map.ptr<float>(static_cast<int>(
                                    bottom_right_image.y))[static_cast<int>(bottom_right_image.x)] *
@@ -1146,7 +1151,8 @@ int EBPathOptimizer::getStraightLineIdx(
       const double delta_yaw = yaw - prev_yaw;
       const double norm_delta_yaw = tier4_autoware_utils::normalizeRadian(delta_yaw);
       float clearance_from_object = std::numeric_limits<float>::max();
-      const auto image_point = util::transformMapToOptionalImage(interpolated_points[i], map_info);
+      const auto image_point =
+        geometry_utils::transformMapToOptionalImage(interpolated_points[i], map_info);
       if (image_point) {
         clearance_from_object = only_objects_clearance_map.ptr<float>(static_cast<int>(
                                   image_point.get().y))[static_cast<int>(image_point.get().x)] *
@@ -1255,19 +1261,22 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   geometry_msgs::msg::Point top_left;
   top_left.x = clearance;
   top_left.y = clearance;
-  constrain_range.top_left = util::transformToAbsoluteCoordinate2D(top_left, anchor.pose);
+  constrain_range.top_left = geometry_utils::transformToAbsoluteCoordinate2D(top_left, anchor.pose);
   geometry_msgs::msg::Point top_right;
   top_right.x = clearance;
   top_right.y = -1 * clearance;
-  constrain_range.top_right = util::transformToAbsoluteCoordinate2D(top_right, anchor.pose);
+  constrain_range.top_right =
+    geometry_utils::transformToAbsoluteCoordinate2D(top_right, anchor.pose);
   geometry_msgs::msg::Point bottom_left;
   bottom_left.x = -1 * clearance;
   bottom_left.y = clearance;
-  constrain_range.bottom_left = util::transformToAbsoluteCoordinate2D(bottom_left, anchor.pose);
+  constrain_range.bottom_left =
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_left, anchor.pose);
   geometry_msgs::msg::Point bottom_right;
   bottom_right.x = -1 * clearance;
   bottom_right.y = -1 * clearance;
-  constrain_range.bottom_right = util::transformToAbsoluteCoordinate2D(bottom_right, anchor.pose);
+  constrain_range.bottom_right =
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_right, anchor.pose);
   constrain_range.velocity = anchor.velocity;
   return constrain_range;
 }
@@ -1308,19 +1317,20 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   const Anchor & anchor, const cv::Mat & clearance_map,
   const nav_msgs::msg::MapMetaData & map_info) const
 {
-  const auto interpolated_path_points =
-    util::getInterpolatedPoints(path_points, traj_param_.delta_arc_length_for_trajectory);
+  const auto interpolated_path_points = interpolation_utils::getInterpolatedPoints(
+    path_points, traj_param_.delta_arc_length_for_trajectory);
   const size_t nearest_idx =
     tier4_autoware_utils::findNearestIndex(interpolated_path_points, anchor.pose.position);
   // const auto interpolated_path_poses_with_yaw =
-  // util::convertToPosesWithYawEstimation(interpolated_path_points);
+  // points_utils::convertToPosesWithYawEstimation(interpolated_path_points);
   // const auto opt_nearest_idx =
   //   tier4_autoware_utils::findNearestIndex(interpolated_path_poses_with_yaw, anchor.pose,
   //   traj_param_.delta_yaw_threshold_for_closest_point);
 
   float clearance = std::numeric_limits<float>::lowest();
   geometry_msgs::msg::Point image_point;
-  if (util::transformMapToImage(interpolated_path_points[nearest_idx], map_info, image_point)) {
+  if (geometry_utils::transformMapToImage(
+        interpolated_path_points[nearest_idx], map_info, image_point)) {
     clearance =
       clearance_map.ptr<float>(static_cast<int>(image_point.y))[static_cast<int>(image_point.x)] *
       map_info.resolution;
@@ -1346,10 +1356,10 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   Anchor replaced_anchor = anchor;
   replaced_anchor.pose.position = interpolated_points[nearest_idx];
   if (nearest_idx > 0) {
-    replaced_anchor.pose.orientation = util::getQuaternionFromPoints(
+    replaced_anchor.pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[nearest_idx], interpolated_points[nearest_idx - 1]);
   } else if (nearest_idx == 0 && interpolated_points.size() > 1) {
-    replaced_anchor.pose.orientation = util::getQuaternionFromPoints(
+    replaced_anchor.pose.orientation = geometry_utils::getQuaternionFromPoints(
       interpolated_points[nearest_idx + 1], interpolated_points[nearest_idx]);
   }
   ConstrainRectangles rectangles =
@@ -1364,22 +1374,22 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   top_left.x = constrain_param_.clearance_for_joint;
   top_left.y = rel_plus_y;
   constrain_rectangle.top_left =
-    util::transformToAbsoluteCoordinate2D(top_left, replaced_anchor.pose);
+    geometry_utils::transformToAbsoluteCoordinate2D(top_left, replaced_anchor.pose);
   geometry_msgs::msg::Point top_right;
   top_right.x = constrain_param_.clearance_for_joint;
   top_right.y = -1 * rel_minus_y;
   constrain_rectangle.top_right =
-    util::transformToAbsoluteCoordinate2D(top_right, replaced_anchor.pose);
+    geometry_utils::transformToAbsoluteCoordinate2D(top_right, replaced_anchor.pose);
   geometry_msgs::msg::Point bottom_left;
   bottom_left.x = -1 * constrain_param_.clearance_for_joint;
   bottom_left.y = rel_plus_y;
   constrain_rectangle.bottom_left =
-    util::transformToAbsoluteCoordinate2D(bottom_left, replaced_anchor.pose);
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_left, replaced_anchor.pose);
   geometry_msgs::msg::Point bottom_right;
   bottom_right.x = -1 * constrain_param_.clearance_for_joint;
   bottom_right.y = -1 * rel_minus_y;
   constrain_rectangle.bottom_right =
-    util::transformToAbsoluteCoordinate2D(bottom_right, replaced_anchor.pose);
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_right, replaced_anchor.pose);
   constrain_rectangle.velocity = anchor.velocity;
   return constrain_rectangle;
 }
@@ -1400,23 +1410,26 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   top_left.x =
     std::fmin(keep_space_shape_ptr_->x, constrain_param_.max_lon_space_for_driveable_constraint);
   top_left.y = 0;
-  constrain_rectangle.top_left = util::transformToAbsoluteCoordinate2D(top_left, left_pose);
+  constrain_rectangle.top_left =
+    geometry_utils::transformToAbsoluteCoordinate2D(top_left, left_pose);
   geometry_msgs::msg::Point bottom_left;
   bottom_left.x = 0;
   bottom_left.y = 0;
-  constrain_rectangle.bottom_left = util::transformToAbsoluteCoordinate2D(bottom_left, left_pose);
+  constrain_rectangle.bottom_left =
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_left, left_pose);
   geometry_msgs::msg::Pose right_pose = anchor.pose;
   right_pose.position = constrain_rectangle.top_right;
   geometry_msgs::msg::Point top_right;
   top_right.x =
     std::fmin(keep_space_shape_ptr_->x, constrain_param_.max_lon_space_for_driveable_constraint);
   top_right.y = 0;
-  constrain_rectangle.top_right = util::transformToAbsoluteCoordinate2D(top_right, right_pose);
+  constrain_rectangle.top_right =
+    geometry_utils::transformToAbsoluteCoordinate2D(top_right, right_pose);
   geometry_msgs::msg::Point bottom_right;
   bottom_right.x = 0;
   bottom_right.y = 0;
   constrain_rectangle.bottom_right =
-    util::transformToAbsoluteCoordinate2D(bottom_right, right_pose);
+    geometry_utils::transformToAbsoluteCoordinate2D(bottom_right, right_pose);
   constrain_rectangle.velocity = anchor.velocity;
   return constrain_rectangle;
 }
@@ -1427,7 +1440,7 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   const Anchor & anchor, const nav_msgs::msg::MapMetaData & map_info,
   const cv::Mat & only_objects_clearance_map) const
 {
-  UtilRectangle util_rect = util::getLargestRectangle(occupancy_map);
+  UtilRectangle util_rect = geometry_utils::getLargestRectangle(occupancy_map);
 
   ConstrainRectangle constrain_rectangle;
   if (util_rect.area < epsilon_) {
@@ -1439,9 +1452,9 @@ ConstrainRectangle EBPathOptimizer::getConstrainRectangle(
   geometry_msgs::msg::Point max_abs_y = occupancy_points[util_rect.max_x_idx][util_rect.max_y_idx];
   geometry_msgs::msg::Point min_abs_y = occupancy_points[util_rect.max_x_idx][util_rect.min_y_idx];
   geometry_msgs::msg::Point max_rel_y =
-    util::transformToRelativeCoordinate2D(max_abs_y, anchor.pose);
+    geometry_utils::transformToRelativeCoordinate2D(max_abs_y, anchor.pose);
   geometry_msgs::msg::Point min_rel_y =
-    util::transformToRelativeCoordinate2D(min_abs_y, anchor.pose);
+    geometry_utils::transformToRelativeCoordinate2D(min_abs_y, anchor.pose);
   if (
     (max_rel_y.y < -1 * constrain_param_.clearance_for_only_smoothing ||
      min_rel_y.y > constrain_param_.clearance_for_only_smoothing) &&
