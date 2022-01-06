@@ -131,11 +131,14 @@ struct DebugData
     {
       tmp_ss << s;
       if (s.back() == '\n') {
+        std::string tmp_str = tmp_ss.str();
+        str += tmp_str;
+
         if (is_showing_calculation_time) {
-          RCLCPP_INFO_STREAM(rclcpp::get_logger("obstacle_avoidance_planner.time"), tmp_ss.str());
+          tmp_str.pop_back();  // remove '\n' which is unnecessary for RCLCPP_INFO_STREAM
+          RCLCPP_INFO_STREAM(rclcpp::get_logger("obstacle_avoidance_planner.time"), tmp_str);
         }
-        str += tmp_ss.str();
-        tmp_ss.clear();
+        tmp_ss.str("");
       }
       return *this;
     }
@@ -168,11 +171,9 @@ struct DebugData
   FOAData foa_data;
 
   size_t visualize_sampling_num = 10;
-  SequentialBoundsCandidates sequential_bounds_candidates;
+  // SequentialBoundsCandidates sequential_bounds_candidates;
   std::vector<std::vector<geometry_msgs::msg::Pose>> vehicle_circles_pose;
-  // SequentialBounds ref_bounds;
   std::vector<ReferencePoint> ref_points;
-  std::vector<std::vector<geometry_msgs::msg::Pose>> ref_bounds_pose;
 
   std::vector<geometry_msgs::msg::Pose> mpt_ref_poses;
   std::vector<double> lateral_errors;

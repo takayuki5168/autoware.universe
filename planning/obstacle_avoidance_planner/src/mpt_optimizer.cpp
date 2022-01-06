@@ -334,14 +334,12 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     calcCurvature(ref_points);
     calcArcLength(ref_points);
 
-    // TODO(murooka) add + 3.0m
     // crop trajectory with margin to calculate vehicle bounds at the end point
-    // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po0");
     const double ref_length_with_margin =
-      traj_param_ptr_->num_sampling_points *
-      mpt_param_ptr_->delta_arc_length_for_mpt_points;  // + 3.0;
+      traj_param_ptr_->num_sampling_points * mpt_param_ptr_->delta_arc_length_for_mpt_points +
+      3.0;  // TODO(murooka) magic number
     ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length_with_margin);
-    // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po1");
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("ref_points"), ref_points.size());
 
     // set bounds information
     calcBounds(ref_points, enable_avoidance, maps, debug_data_ptr);
@@ -351,14 +349,12 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     // NOTE: This must be after bounds calculation.
     calcExtraPoints(ref_points);
 
-    /*
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po2");
     const double ref_length =
-      traj_param_ptr_->num_sampling_points * traj_param_ptr_->delta_arc_length_for_mpt_points;
+      traj_param_ptr_->num_sampling_points * mpt_param_ptr_->delta_arc_length_for_mpt_points;
     ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length);
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po3");
-    */
+    RCLCPP_ERROR_STREAM(rclcpp::get_logger("ref_points"), ref_points.size());
 
+    // bounds information is assigned to debug data after truncating reference points
     debug_data_ptr->ref_points = ref_points;
 
     return ref_points;
@@ -1014,7 +1010,7 @@ void MPTOptimizer::calcBounds(
       enable_avoidance, convertRefPointsToPose(ref_point), maps, debug_data_ptr);
     sequential_bounds_candidates.push_back(bounds_candidates);
   }
-  debug_data_ptr->sequential_bounds_candidates = sequential_bounds_candidates;
+  // debug_data_ptr->sequential_bounds_candidates = sequential_bounds_candidates;
 
   // search continuous and widest bounds only for front point
   for (size_t i = 0; i < sequential_bounds_candidates.size(); ++i) {
@@ -1078,23 +1074,23 @@ void MPTOptimizer::calcVehicleBounds(
     ref_points.at(p_idx).vehicle_bounds.clear();
     ref_points.at(p_idx).beta.clear();
 
-    AvoidPoints vehicle_avoiding_points;
     for (const double d : mpt_param_ptr_->avoiding_circle_offsets) {
       geometry_msgs::msg::Pose avoid_traj_pose;
       avoid_traj_pose.position =
         ref_points_spline_interpolation.getSplineInterpolatedValues(p_idx, d);
-      const double avoid_point_yaw = ref_points_spline_interpolation.getYawAngle(p_idx, d);
-      avoid_traj_pose.orientation = tier4_autoware_utils::createQuaternionFromYaw(avoid_point_yaw);
+      const double vehicle_bounds_pose_yaw = ref_points_spline_interpolation.getYawAngle(p_idx, d);
+      avoid_traj_pose.orientation =
+        tier4_autoware_utils::createQuaternionFromYaw(vehicle_bounds_pose_yaw);
 
       const double avoid_yaw = std::atan2(
         avoid_traj_pose.position.y - ref_point.p.y, avoid_traj_pose.position.x - ref_point.p.x);
-      const double beta = ref_point.yaw - avoid_point_yaw;
+      const double beta = ref_point.yaw - vehicle_bounds_pose_yaw;
       ref_points.at(p_idx).beta.push_back(beta);
 
       const double offset_y = -tier4_autoware_utils::calcDistance2d(ref_point, avoid_traj_pose) *
-                              std::sin(avoid_yaw - avoid_point_yaw);
+                              std::sin(avoid_yaw - vehicle_bounds_pose_yaw);
 
-      const auto avoid_point =
+      const auto vehicle_bounds_pose =
         tier4_autoware_utils::calcOffsetPose(avoid_traj_pose, 0.0, offset_y, 0.0);
 
       // interpolate bounds
@@ -1130,9 +1126,8 @@ void MPTOptimizer::calcVehicleBounds(
         }
       }
 
-      vehicle_avoiding_points.push_back(avoid_point);
+      ref_points.at(p_idx).vehicle_bounds_poses.push_back(vehicle_bounds_pose);
     }
-    debug_data_ptr->ref_bounds_pose.push_back(vehicle_avoiding_points);
   }
 
   debug_data_ptr->msg_stream << "            " << __func__ << ":= " << stop_watch_.toc(__func__)

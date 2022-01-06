@@ -58,16 +58,6 @@
 #include <memory>
 #include <vector>
 
-using AvoidPoint = geometry_msgs::msg::Pose;
-/*
-struct AvoidPoint
-{
-  geometry_msgs::msg::Pose pose;
-};
-*/
-
-using AvoidPoints = std::vector<AvoidPoint>;
-
 enum class CollisionType { NO_COLLISION = 0, OUT_OF_SIGHT = 1, OUT_OF_ROAD = 2, OBJECT = 3 };
 
 struct Bounds
@@ -139,6 +129,9 @@ struct ReferencePoint
   //
   std::vector<boost::optional<double>> beta;
   VehicleBounds vehicle_bounds;
+
+  // SequentialBoundsCandidates sequential_bounds_candidates;
+  std::vector<geometry_msgs::msg::Pose> vehicle_bounds_poses;  // for debug visualization
 };
 
 class MPTOptimizer
