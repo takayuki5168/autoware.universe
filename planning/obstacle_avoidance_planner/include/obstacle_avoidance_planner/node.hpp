@@ -44,7 +44,6 @@
 #include "boost/optional.hpp"
 
 #include <memory>
-#include <mutex>
 #include <vector>
 
 namespace
@@ -103,7 +102,6 @@ private:
   bool enable_avoidance_;
   bool reset_prev_info_;
   bool use_footprint_for_drivability_;
-  std::mutex mutex_;
 
   // params outside logic
   double min_ego_moving_dist_for_replan_;
@@ -213,7 +211,7 @@ private:
   Trajectories getPrevTrajs(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
 
-  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getPrevTrajectory(
+  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getPrevModelPredictiveTrajectory(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points) const;
 
   Trajectories makePrevTrajectories(
