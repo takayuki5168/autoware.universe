@@ -26,7 +26,49 @@ Only position and orientation of trajectory are calculated in this module, and v
 
 Each module is explained briefly here based on the flowchart.
 
-![obstacle_avoidance_planner_flowchart](./media/obstacle_avoidance_planner_flowchart.drawio.svg)
+```plantuml
+@startuml
+title generateTrajectory
+start
+
+group generateOptimizedTrajectory
+  :needReplan;
+  group getMaps
+    :getDrivableArea;
+    :getRoadClearanceMap;
+    :drawObstacleOnImage;
+    :getObstacleClearanceMap;
+  end group
+
+  group optimizeTrajectory
+    :getEBTrajectory;
+    :getModelPredictiveTrajectory;
+
+    if (optimization failed?) then (yes)
+      :send previously trajectory;
+    endif
+  end group
+
+  :insertZeroVeloityOutsideDrivableArea;
+end group
+
+
+group generatePostProcessedTrajectory
+  :getExtendedOptimizedTrajectory;
+  :concatTraj;
+  group reCalcTrajectoryPoints;
+    :getInterpolatedTrajectoryPoints;
+    :alignVelocityWIthPoints;
+  end group
+end group
+
+:convertToTrajectory;
+
+:publishDebugData;
+
+stop
+@enduml
+```
 
 ### Manage trajectory generation
 
