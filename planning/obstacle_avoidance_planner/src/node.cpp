@@ -785,7 +785,7 @@ void ObstacleAvoidancePlanner::pathCallback(
 autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateTrajectory(
   const autoware_auto_planning_msgs::msg::Path & path)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
+  // std::lock_guard<std::mutex> lock(mutex_);
   stop_watch_.tic(__func__);
 
   // generate optimized trajectory
@@ -795,10 +795,11 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
   const auto post_processed_traj_points =
     generatePostProcessedTrajectory(path.points, optimized_traj_points);
 
-  // convert to msg type
+  // convert to output msg type
   auto output = tier4_autoware_utils::convertToTrajectory(post_processed_traj_points);
   output.header = path.header;
 
+  // make prev variable
   prev_path_points_ptr_ =
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
 
@@ -1243,6 +1244,7 @@ void ObstacleAvoidancePlanner::publishDebugData(
   }
 
   {  // publish markers
+    /*
     std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> traj_points_debug = traj_points;
     // Add z information for virtual wall
     if (!traj_points_debug.empty()) {
@@ -1252,10 +1254,11 @@ void ObstacleAvoidancePlanner::publishDebugData(
       const int idx = opt_idx ? *opt_idx : 0;
       traj_points_debug.back().pose.position.z = path.points.at(idx).pose.position.z + 1.0;
     }
+    */
 
     stop_watch_.tic("getDebugVisualizationMarker");
     const auto & debug_marker = debug_visualization::getDebugVisualizationMarker(
-      debug_data_ptr_, traj_points_debug, vehicle_param, false);
+      debug_data_ptr_, traj_points, vehicle_param, false);
     debug_data_ptr_->msg_stream << "      getDebugVisualizationMarker:= "
                                 << stop_watch_.toc("getDebugVisualizationMarker") << " [ms]\n";
 
@@ -1266,7 +1269,7 @@ void ObstacleAvoidancePlanner::publishDebugData(
   }
 
   {  // publish clearance map
-    stop_watch_.tic("publichClearanceMap");
+    stop_watch_.tic("publishClearanceMap");
     if (is_publishing_area_with_objects_) {  // false
       debug_area_with_objects_pub_->publish(debug_visualization::getDebugCostmap(
         debug_data_ptr_->area_with_objects_map, path.drivable_area));
@@ -1280,7 +1283,7 @@ void ObstacleAvoidancePlanner::publishDebugData(
         debug_visualization::getDebugCostmap(debug_data_ptr_->clearance_map, path.drivable_area));
     }
     debug_data_ptr_->msg_stream << "      getDebugCostMap * 3:= "
-                                << stop_watch_.toc("publichClearanceMap") << " [ms]\n";
+                                << stop_watch_.toc("publishClearanceMap") << " [ms]\n";
   }
 
   debug_data_ptr_->msg_stream << "    " << __func__ << ":= " << stop_watch_.toc(__func__)

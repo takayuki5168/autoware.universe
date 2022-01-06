@@ -436,6 +436,7 @@ visualization_msgs::msg::MarkerArray getRectanglesNumMarkerArray(
   return msg;
 }
 
+/*
 visualization_msgs::msg::MarkerArray getBoundsCandidatesLineMarkerArray(
   const std::vector<ReferencePoint> & ref_points,
   const SequentialBoundsCandidates & sequential_bounds_candidates, const double r, const double g,
@@ -479,16 +480,16 @@ visualization_msgs::msg::MarkerArray getBoundsCandidatesLineMarkerArray(
   msg.markers.push_back(marker);
   return msg;
 }
+*/
 
 visualization_msgs::msg::MarkerArray getBoundsLineMarkerArray(
-  const std::vector<ReferencePoint> & ref_points,
-  const std::vector<std::vector<geometry_msgs::msg::Pose>> & ref_bounds_pose, const double r,
-  const double g, const double b, const double avoiding_circle_radius, const size_t sampling_num)
+  const std::vector<ReferencePoint> & ref_points, const double r, const double g, const double b,
+  const double avoiding_circle_radius, const size_t sampling_num)
 {
   const auto current_time = rclcpp::Clock().now();
   visualization_msgs::msg::MarkerArray msg;
 
-  if (ref_points.empty() || ref_bounds_pose.empty()) return msg;
+  if (ref_points.empty()) return msg;
 
   for (size_t bound_idx = 0; bound_idx < ref_points.at(0).vehicle_bounds.size(); ++bound_idx) {
     const std::string ns = "base_bounds_" + std::to_string(bound_idx);
@@ -504,7 +505,7 @@ visualization_msgs::msg::MarkerArray getBoundsLineMarkerArray(
           continue;
         }
 
-        const geometry_msgs::msg::Pose & pose = ref_bounds_pose[i][bound_idx];
+        const geometry_msgs::msg::Pose & pose = ref_points.at(i).vehicle_bounds_poses.at(bound_idx);
         const double lb_y =
           ref_points.at(i).vehicle_bounds[bound_idx].lower_bound - avoiding_circle_radius;
         const auto lb = tier4_autoware_utils::calcOffsetPose(pose, 0.0, lb_y, 0.0).position;
@@ -526,7 +527,7 @@ visualization_msgs::msg::MarkerArray getBoundsLineMarkerArray(
           continue;
         }
 
-        const geometry_msgs::msg::Pose & pose = ref_bounds_pose[i][bound_idx];
+        const geometry_msgs::msg::Pose & pose = ref_points.at(i).vehicle_bounds_poses.at(bound_idx);
         const double ub_y =
           ref_points.at(i).vehicle_bounds[bound_idx].upper_bound + avoiding_circle_radius;
         const auto ub = tier4_autoware_utils::calcOffsetPose(pose, 0.0, ub_y, 0.0).position;
@@ -717,7 +718,7 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
 {
   // virtual wall
   visualization_msgs::msg::MarkerArray vis_marker_array;
-  if (debug_data_ptr->stop_pose_by_drivable_area && !optimized_points.empty()) {
+  if (debug_data_ptr->stop_pose_by_drivable_area) {
     const auto virtual_wall_pose =
       getVirtualWallPose(debug_data_ptr->stop_pose_by_drivable_area.get(), vehicle_param);
     appendMarkerArray(
@@ -752,35 +753,34 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
   appendMarkerArray(
     getObjectsMarkerArray(debug_data_ptr->avoiding_objects, "avoiding_objects", 0.99, 0.99, 0.2),
     &vis_marker_array);
-
   // mpt footprints
   appendMarkerArray(
     getRectanglesMarkerArray(
       debug_data_ptr->mpt_traj, vehicle_param, "mpt_footprints", 0.99, 0.99, 0.2,
       debug_data_ptr->visualize_sampling_num),
     &vis_marker_array);
-
   // bounds
   appendMarkerArray(
     getBoundsLineMarkerArray(
-      debug_data_ptr->ref_points, debug_data_ptr->ref_bounds_pose, 0.99, 0.99, 0.2,
-      debug_data_ptr->avoiding_circle_radius, debug_data_ptr->visualize_sampling_num),
+      debug_data_ptr->ref_points, 0.99, 0.99, 0.2, debug_data_ptr->avoiding_circle_radius,
+      debug_data_ptr->visualize_sampling_num),
     &vis_marker_array);
-
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po16");
+  /*
   // bounds candidates
   appendMarkerArray(
     getBoundsCandidatesLineMarkerArray(
       debug_data_ptr->ref_points, debug_data_ptr->sequential_bounds_candidates, 0.2, 0.99, 0.99,
       debug_data_ptr->avoiding_circle_radius, debug_data_ptr->visualize_sampling_num),
     &vis_marker_array);
-
+  */
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po17");
   // vehicle circle line
   appendMarkerArray(
     getVehicleCircleLineMarkerArray(
       debug_data_ptr->vehicle_circles_pose, debug_data_ptr->avoiding_circle_radius,
       debug_data_ptr->visualize_sampling_num, "vehicle_circle_lines", 0.99, 0.99, 0.2),
     &vis_marker_array);
-
   // lateral error line
   appendMarkerArray(
     getLateralErrorsLineMarkerArray(
@@ -794,7 +794,6 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
       debug_data_ptr->current_ego_pose, debug_data_ptr->avoiding_circle_offsets,
       debug_data_ptr->avoiding_circle_radius, "current_vehicle_circles", 1.0, 0.3, 0.3),
     &vis_marker_array);
-
   // vehicle circles
   appendMarkerArray(
     getVehicleCirclesMarkerArray(
