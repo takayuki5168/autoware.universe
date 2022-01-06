@@ -196,6 +196,8 @@ Trajectory near the ego must be stable, therefore the condition where trajectory
 
 #### Formulation
 
+##### Vehicle kinematics
+
 As the following figure, we consider the bicycle kinematics model in the frenet frame to track the reference path.
 At time step $k$, we define lateral distance to the reference path, heading angle against the reference path, and steer angle as $y_k$, $\theta_k$, and $\delta_k$ respectively.
 
@@ -211,6 +213,8 @@ y_{k+1} & = y_{k} + v \sin \theta_k dt \\
 \delta_{k+1} & = \delta_k - \frac{\delta_k - \delta_{des,k}}{\tau}dt
 \end{align}
 $$
+
+##### Linearization
 
 Then we linearize these equations.
 $y_k$ and $\theta_k$ are tracking errors, so we assume that those are small enough.
@@ -242,41 +246,181 @@ $$
 \end{align}
 $$
 
-Based on the linearization, the error kinematics is formulated with the following linear equations.
+##### One-step state equation
+
+Based on the linearization, the error kinematics is formulated with the following linear equations,
 
 $$
 \begin{align}
     \begin{pmatrix}
         y_{k+1} \\
-        \theta_{k+1} \\
-        \delta_{k+1}
+        \theta_{k+1}
     \end{pmatrix}
     =
     \begin{pmatrix}
-        1 & v dt & 0 \\
-        0 & 1 & \frac{v dt}{L \cos^{2} \delta_{\mathrm{ref}, k}} \\
-        0 & 0 & 1 - \frac{dt}{\tau}
+        1 & v dt \\
+        0 & 1 \\
     \end{pmatrix}
     \begin{pmatrix}
         y_k \\
         \theta_k \\
-        \delta_k
     \end{pmatrix}
     +
     \begin{pmatrix}
         0 \\
-        0 \\
-        \frac{dt}{\tau}
+        \frac{v dt}{L \cos^{2} \delta_{\mathrm{ref}, k}} \\
     \end{pmatrix}
-    \delta_{des}
+    \delta_{k}
     +
     \begin{pmatrix}
         0 \\
         \frac{v \tan(\delta_{\mathrm{ref}, k}) dt}{L} - \frac{v \delta_{\mathrm{ref}, k} dt}{L \cos^{2} \delta_{\mathrm{ref}, k}} - \kappa_k v dt\\
-        0
     \end{pmatrix}
 \end{align}
 $$
+
+which can be formulated as follows with the state $\boldsymbol{x}$, control input $u$ and some matrices, where $\boldsymbol{x} = (y_k, \theta_k)$
+
+$$
+\begin{align}
+  \boldsymbol{x}_{k+1} = A_k \boldsymbol{x}_k + \boldsymbol{b}_k u_k + \boldsymbol{w}_k
+\end{align}
+$$
+
+##### Time-series state equation
+
+Then, we formulate time-series state equation by concatenating states, control inputs and matrices respectively as
+
+$$
+\begin{align}
+  \boldsymbol{x} = A \boldsymbol{x}_0 + B \boldsymbol{u} + \boldsymbol{w}
+\end{align}
+$$
+
+where
+
+$$
+\begin{align}
+\boldsymbol{x} = (\boldsymbol{x}^T_1, \boldsymbol{x}^T_2, \boldsymbol{x}^T_3, \dots, \boldsymbol{x}^T_{n-1})^T \\
+\boldsymbol{u} = (u_0, u_1, u_2, \dots, u_{n-2})^T \\
+\boldsymbol{w} = (\boldsymbol{w}^T_0, \boldsymbol{w}^T_1, \boldsymbol{w}^T_2, \dots, \boldsymbol{w}^T_{n-1})^T. \\
+\end{align}
+$$
+
+In detail, each matrices are constructed as follows.
+
+$$
+\begin{align}
+    \begin{pmatrix}
+        \boldsymbol{x}_1 \\
+        \boldsymbol{x}_2 \\
+        \boldsymbol{x}_3 \\
+        \vdots \\
+        \boldsymbol{x}_{n-1}
+    \end{pmatrix}
+    =
+    \begin{pmatrix}
+        A_0 \\
+        A_1 A_0 \\
+        A_2 A_1 A_0\\
+        \vdots \\
+        \prod\limits_{k=0}^{n-1} A_{k}
+    \end{pmatrix}
+    \boldsymbol{x}_0
+    +
+    \begin{pmatrix}
+      B_0 & 0 & & \dots & 0 \\
+      A_0 B_0 & B_1 & 0 & \dots & 0 \\
+      A_1 A_0 B_0 & A_0 B_1 & B_2 & \dots & 0 \\
+      \vdots & \vdots & & \ddots & 0 \\
+      \prod\limits_{k=0}^{n-3} A_k B_0 & \prod\limits_{k=0}^{n-4} A_k B_1 & \dots & A_0 B_{n-3} & B_{n-2}
+    \end{pmatrix}
+    \begin{pmatrix}
+        u_0 \\
+        u_1 \\
+        u_2 \\
+        \vdots \\
+        u_{n-2}
+    \end{pmatrix}
+    +
+    \begin{pmatrix}
+      I & 0 & & \dots & 0 \\
+      A_0 & I & 0 & \dots & 0 \\
+      A_1 A_0 & A_0 & I & \dots & 0 \\
+      \vdots & \vdots & & \ddots & 0 \\
+      \prod\limits_{k=0}^{n-3} A_k & \prod\limits_{k=0}^{n-4} A_k & \dots & A_0 & I
+    \end{pmatrix}
+    \begin{pmatrix}
+        \boldsymbol{w}_0 \\
+        \boldsymbol{w}_1 \\
+        \boldsymbol{w}_2 \\
+        \vdots \\
+        \boldsymbol{w}_{n-2}
+    \end{pmatrix}
+\end{align}
+$$
+
+##### Free-boundary-conditioned time-series state equation
+
+For path planning which does not start from the current ego pose, $\boldsymbol{x}_0$ should be the design variable of optimization.
+Therefore, we make $\boldsymbol{x}'$ and $\boldsymbol{u}'$ by concatenating $\boldsymbol{x}_0$ and $\boldsymbol{x}$, $\boldsymbol{u}$ respectively.
+Then we get the following state equation
+
+$$
+\begin{align}
+  \boldsymbol{x}' = B' \boldsymbol{u}' + \boldsymbol{w},
+\end{align}
+$$
+
+which is in detail
+
+$$
+\begin{align}
+    \begin{pmatrix}
+        \boldsymbol{x}_0 \\
+        \boldsymbol{x}_1 \\
+        \boldsymbol{x}_2 \\
+        \boldsymbol{x}_3 \\
+        \vdots \\
+        \boldsymbol{x}_{n-1}
+    \end{pmatrix}
+    =
+    \begin{pmatrix}
+      I & 0 & \dots & & & 0 \\
+      A_0 & B_0 & 0 & & \dots & 0 \\
+      A_1 A_0 & A_0 B_0 & B_1 & 0 & \dots & 0 \\
+      A_2 A_1 A_0 & A_1 A_0 B_0 & A_0 B_1 & B_2 & \dots & 0 \\
+      \vdots & \vdots & \vdots & & \ddots & 0 \\
+      \prod\limits_{k=0}^{n-1} A_k & \prod\limits_{k=0}^{n-3} A_k B_0 & \prod\limits_{k=0}^{n-4} A_k B_1 & \dots & A_0 B_{n-3} & B_{n-2}
+    \end{pmatrix}
+    \begin{pmatrix}
+        \boldsymbol{x}_0 \\
+        u_0 \\
+        u_1 \\
+        u_2 \\
+        \vdots \\
+        u_{n-2}
+    \end{pmatrix}
+    +
+    \begin{pmatrix}
+      0 & \dots & & & 0 \\
+      I & 0 & & \dots & 0 \\
+      A_0 & I & 0 & \dots & 0 \\
+      A_1 A_0 & A_0 & I & \dots & 0 \\
+      \vdots & \vdots & & \ddots & 0 \\
+      \prod\limits_{k=0}^{n-3} A_k & \prod\limits_{k=0}^{n-4} A_k & \dots & A_0 & I
+    \end{pmatrix}
+    \begin{pmatrix}
+        \boldsymbol{w}_0 \\
+        \boldsymbol{w}_1 \\
+        \boldsymbol{w}_2 \\
+        \vdots \\
+        \boldsymbol{w}_{n-2}
+    \end{pmatrix}.
+\end{align}
+$$
+
+##### Objective function
 
 The objective function for smoothing and tracking is shown as follows.
 
