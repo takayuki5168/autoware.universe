@@ -626,8 +626,8 @@ MPTOptimizer::MPTMatrix MPTOptimizer::generateMPTMatrix(
         // TODO(murooka)
         return 0.0;
       }
-      const size_t prev_idx = (i < N_ref - 1) ? i : i - 1;
-      return ref_points.at(prev_idx + 1).s - ref_points.at(prev_idx).s;
+      const size_t prev_idx = (i < N_ref - 1) ? i + 1 : i;
+      return ref_points.at(prev_idx).s - ref_points.at(prev_idx - 1).s;
     }();
 
     // get discrete kinematics matrix A, B, W
@@ -1349,6 +1349,107 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 {
   stop_watch_.tic(__func__);
 
+  const size_t DIM_X = vehicle_model_ptr_->getDimX();
+  const size_t N_ref = ref_points.size();
+
+  // generate T matrix and vector to shift optimization center
+  //   define Z as time-series vector of shifted deviation error
+  //   Z = sparse_T_mat * (mpt_mat.Bex * U + mpt_mat.Wex) + T_vec
+  Eigen::SparseMatrix<double> sparse_T_mat(N_ref * DIM_X, N_ref * DIM_X);
+  Eigen::VectorXd T_vec = Eigen::VectorXd::Zero(N_ref * DIM_X);
+  std::vector<Eigen::Triplet<double>> triplet_T_vec;
+  const double offset = mpt_param_ptr_->optimization_center_offset;
+
+  for (size_t i = 0; i < N_ref; ++i) {
+    const double alpha = ref_points.at(i).alpha;
+
+    triplet_T_vec.push_back(Eigen::Triplet<double>(i * DIM_X, i * DIM_X, std::cos(alpha)));
+    triplet_T_vec.push_back(
+      Eigen::Triplet<double>(i * DIM_X, i * DIM_X + 1, offset * std::cos(alpha)));
+    triplet_T_vec.push_back(Eigen::Triplet<double>(i * DIM_X + 1, i * DIM_X + 1, 1.0));
+
+    T_vec(i * DIM_X) = -offset * std::sin(alpha);
+  }
+  sparse_T_mat.setFromTriplets(triplet_T_vec.begin(), triplet_T_vec.end());
+
+  const Eigen::MatrixXd B = sparse_T_mat * mpt_mat.Bex;
+  const Eigen::MatrixXd QB = val_mat.Qex * B;
+  const Eigen::MatrixXd R = val_mat.Rex;
+
+  Eigen::MatrixXd H = Eigen::MatrixXd::Zero(N_ref, N_ref);
+  H.triangularView<Eigen::Upper>() = B.transpose() * QB + R;
+  H.triangularView<Eigen::Lower>() = H.transpose();
+
+  Eigen::VectorXd f = (sparse_T_mat * mpt_mat.Wex + T_vec).transpose() * QB;
+
+  // addSteerWeightF(f);
+
+  int avoiding_constraint_type = 0;
+  if (mpt_param_ptr_->soft_constraint) {
+    if (mpt_param_ptr_->hard_constraint) {
+      avoiding_constraint_type = 2;
+    } else {
+      avoiding_constraint_type = 0;
+    }
+  } else if (mpt_param_ptr_->hard_constraint) {
+    avoiding_constraint_type = 1;
+  }
+
+  const size_t num_vehicle_avoiding_points = mpt_param_ptr_->avoiding_circle_offsets.size();
+  const size_t num_soft_first_slack_variables =
+    mpt_param_ptr_->l_inf_norm ? 1 : num_vehicle_avoiding_points;
+  const size_t num_soft_second_slack_variables =
+    mpt_param_ptr_->two_step_soft_constraint
+      ? (mpt_param_ptr_->l_inf_norm ? 1 : num_vehicle_avoiding_points)
+      : 0;
+
+  const size_t num_objective_variables = [&]() {
+    if (avoiding_constraint_type == 1) {  // hard
+      return N_ref * 1;                                   // steer
+    }
+
+    // steer + slack variables for each vehicle circle
+    return N_ref * (1 + num_soft_first_slack_variables + num_soft_second_slack_variables);
+  }();
+
+  // extend h for slack variables
+  Eigen::MatrixXd extend_h = Eigen::MatrixXd::Zero(N_ref, N_ref);
+  Eigen::MatrixXd concat_h =
+    Eigen::MatrixXd::Zero(num_objective_variables, num_objective_variables);
+  concat_h.block(0, 0, N_ref, N_ref) = H;
+  if (avoiding_constraint_type != 1) {  // soft or soft + hard
+    for (size_t i = 0; i < num_soft_first_slack_variables + num_soft_second_slack_variables; ++i) {
+      concat_h.block(N_ref * (i + 1), N_ref * (i + 1), N_ref, N_ref) = extend_h;
+    }
+  }
+
+  // extend f for slack variables
+  Eigen::VectorXd extend_f = Eigen::VectorXd::Ones(N_ref);
+  Eigen::VectorXd concat_f = Eigen::VectorXd::Zero(num_objective_variables);
+  concat_f.segment(0, N_ref) = f;
+  if (avoiding_constraint_type != 1) {  // soft or soft + hard
+    for (size_t i = 0; i < num_soft_first_slack_variables; ++i) {
+      concat_f.segment(N_ref * (i + 1), N_ref) = mpt_param_ptr_->soft_avoidance_weight * extend_f;
+    }
+    for (size_t i = 0; i < num_soft_second_slack_variables; ++i) {
+      concat_f.segment(N_ref * (i + 1), N_ref) =
+        mpt_param_ptr_->soft_second_avoidance_weight * extend_f;
+    }
+  }
+
+  ObjectiveMatrix obj_matrix;
+  obj_matrix.hessian = concat_h;
+  obj_matrix.gradient = {concat_f.data(), concat_f.data() + concat_f.rows()};
+
+  debug_data_ptr->msg_stream << "          " << __func__ << ":= " << stop_watch_.toc(__func__)
+                             << " [ms]\n";
+
+  return obj_matrix;
+}
+/*
+{
+  stop_watch_.tic(__func__);
+
   const size_t D_x = vehicle_model_ptr_->getDimX();
   const size_t D_u = vehicle_model_ptr_->getDimU();
   const size_t N_ref = ref_points.size();
@@ -1414,8 +1515,12 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 
   // extend f for slack variables
   Eigen::VectorXd full_f(D_v + N_ref * N_slack);
+  //full_f.segment(0, D_v) = f;
+  //full_f.segment(D_v, N_ref * N_first_slack) = mpt_param_ptr_->soft_avoidance_weight * Eigen::VectorXd::Ones(N_ref * N_first_slack);
+  //full_f.segment(D_v + N_ref * N_first_slack, N_ref * N_second_slack) = mpt_param_ptr_->soft_second_avoidance_weight * Eigen::VectorXd::Ones(N_ref * N_second_slack);
   full_f << f, mpt_param_ptr_->soft_avoidance_weight * Eigen::VectorXd::Ones(N_ref * N_first_slack),
     mpt_param_ptr_->soft_second_avoidance_weight * Eigen::VectorXd::Ones(N_ref * N_second_slack);
+  RCLCPP_ERROR_STREAM(rclcpp::get_logger("popopo"), N_first_slack << " " << N_second_slack);
 
   ObjectiveMatrix obj_matrix;
   obj_matrix.hessian = full_H;
@@ -1426,6 +1531,7 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 
   return obj_matrix;
 }
+*/
 
 // Set constraint: lb <= Ax <= ub
 // decision variable
@@ -1433,7 +1539,250 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 //   \in \mathbb{R}^{N * (N_vehicle_circle + 1)}
 MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
   [[maybe_unused]] const bool enable_avoidance, const MPTMatrix & mpt_mat,
-  const std::vector<ReferencePoint> & ref_points, std::shared_ptr<DebugData> debug_data_ptr) const
+  const std::vector<ReferencePoint> & ref_points, [[maybe_unused]] std::shared_ptr<DebugData> debug_data_ptr) const
+{
+  // NOTE: currently, add additional length to soft bounds approximately
+  //       for soft second and hard bounds
+  // const auto seq_bounds = getReferenceBounds(enable_avoidance, ref_points, maps, debug_data);
+
+  int avoiding_constraint_type = 0;
+  if (mpt_param_ptr_->soft_constraint) {
+    if (mpt_param_ptr_->hard_constraint) {
+      avoiding_constraint_type = 2;
+    } else {
+      avoiding_constraint_type = 0;
+    }
+  } else if (mpt_param_ptr_->hard_constraint) {
+    avoiding_constraint_type = 1;
+  }
+
+  const size_t N_ref = ref_points.size();
+  const size_t N_slack =
+    mpt_param_ptr_->l_inf_norm ? 1 : mpt_param_ptr_->avoiding_circle_offsets.size();
+  const size_t N_avoid = mpt_param_ptr_->avoiding_circle_offsets.size();
+  const size_t N_second = mpt_param_ptr_->two_step_soft_constraint ? 2 : 1;
+  const size_t N_kinematics = vehicle_model_ptr_->getDimX();
+  const size_t N_u = N_ref - 1;
+
+  const size_t A_cols = [&] {
+    if (avoiding_constraint_type == 1) {
+      return N_ref;  // steer
+    }
+    return N_ref + N_ref * N_slack * N_second;  // steer + soft
+  }();
+
+  // calculate indices of fixed points
+  std::vector<size_t> fixed_points_indices;
+  for (size_t i = 0; i < N_ref; ++i) {
+    if (ref_points.at(i).fix_kinematics) {
+      // RCLCPP_ERROR_STREAM(rclcpp::get_logger("fixed"), i);
+      fixed_points_indices.push_back(i);
+    } else if (
+      ref_points.at(i).fix_kinematics && i == ref_points.size() - 1 &&
+      mpt_param_ptr_->is_hard_fixing_terminal_point) {
+      fixed_points_indices.push_back(i);
+    }
+  }
+
+  // calculate rows of A
+  size_t A_rows = 0;
+  if (
+    avoiding_constraint_type == 0 || avoiding_constraint_type == 2)
+  // for soft constraints
+  {
+    A_rows += 3 * N_ref * N_avoid * N_second;
+  }
+  if (
+    avoiding_constraint_type == 1 || avoiding_constraint_type == 2)
+  // for hard constraints
+  {
+    A_rows += N_ref * N_avoid;
+  }
+  A_rows += fixed_points_indices.size() * N_kinematics;
+  if (is_hard_steer_limit_) {
+    A_rows += N_u;
+  }
+
+  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(A_rows, A_cols);
+  Eigen::VectorXd lb = Eigen::VectorXd::Constant(A_rows, -autoware::common::osqp::INF);
+  Eigen::VectorXd ub = Eigen::VectorXd::Constant(A_rows, autoware::common::osqp::INF);
+  size_t A_rows_end = 0;
+
+  for (size_t l_idx = 0; l_idx < N_avoid; ++l_idx) {
+    // create C := [1 | l | O]
+    Eigen::SparseMatrix<double> C_sparse_mat(N_ref, N_ref * N_kinematics);
+    std::vector<Eigen::Triplet<double>> C_triplet_vec;
+
+    for (size_t i = 0; i < N_ref; ++i) {
+      const double beta = ref_points.at(i).beta.at(l_idx).get();
+
+      const double avoid_offset = mpt_param_ptr_->avoiding_circle_offsets.at(l_idx);
+
+      C_triplet_vec.push_back(Eigen::Triplet<double>(i, i * N_kinematics, 1.0 * std::cos(beta)));
+      C_triplet_vec.push_back(
+        Eigen::Triplet<double>(i, i * N_kinematics + 1, avoid_offset * std::cos(beta)));
+    }
+    C_sparse_mat.setFromTriplets(C_triplet_vec.begin(), C_triplet_vec.end());
+
+    // calculate CB, and Cbias
+    const Eigen::MatrixXd CB = C_sparse_mat * mpt_mat.Bex;
+    // bias := Cast * Wex
+    Eigen::VectorXd bias = C_sparse_mat * mpt_mat.Wex;
+    for (size_t i = 0; i < N_ref; ++i) {
+      const double beta = ref_points.at(i).beta.at(l_idx).get();
+      bias(i) += mpt_param_ptr_->avoiding_circle_offsets[l_idx] * std::sin(beta);
+    }
+
+    const auto & [part_ub, part_lb] = extractBounds(ref_points, l_idx);
+
+    // soft constraints
+    if (
+      avoiding_constraint_type == 0 ||
+      avoiding_constraint_type == 2)
+    // soft or soft + hard
+    {
+      const size_t A_blk_rows = 3 * N_ref * N_second;
+
+      // A := [C * Bex | O | ... | O | I | O | ...
+      //      -C * Bex | O | ... | O | I | O | ...
+      //          O    | O | ... | O | I | O | ... ]
+      //                0   1 ...     l_idx ...
+      // NOTE: position of Is depends on ihe avoiding points index (= l_idx)
+      Eigen::MatrixXd A_blk = Eigen::MatrixXd::Zero(A_blk_rows, A_cols);
+
+      // lb := [seq_bounds.lower_bound - bias
+      //        bias - seq_bounds.upper_bound
+      //               O            ]
+      Eigen::VectorXd lb_blk = Eigen::VectorXd::Zero(A_blk_rows);
+
+      A_blk.block(0, 0, N_ref, N_ref) = CB;
+      A_blk.block(N_ref, 0, N_ref, N_ref) = -CB;
+
+      const size_t offset_cols = N_ref + (mpt_param_ptr_->l_inf_norm ? 0 : N_ref * l_idx);
+
+      A_blk.block(0, offset_cols, N_ref, N_ref) = Eigen::MatrixXd::Identity(N_ref, N_ref);
+      A_blk.block(N_ref, offset_cols, N_ref, N_ref) = Eigen::MatrixXd::Identity(N_ref, N_ref);
+      A_blk.block(2 * N_ref, offset_cols, N_ref, N_ref) = Eigen::MatrixXd::Identity(N_ref, N_ref);
+
+      lb_blk.segment(0, N_ref) = -bias + part_lb;
+      lb_blk.segment(N_ref, N_ref) = bias - part_ub;
+
+      if (mpt_param_ptr_->two_step_soft_constraint) {
+        const size_t second_offset_rows = 3 * N_ref;
+        const size_t second_offset_cols =
+          N_ref + (mpt_param_ptr_->l_inf_norm ? N_ref : N_ref * N_avoid);
+
+        A_blk.block(second_offset_rows, second_offset_cols, N_ref, N_ref) = CB;
+        A_blk.block(second_offset_rows + N_ref, second_offset_cols, N_ref, N_ref) = -CB;
+
+        const size_t local_offset_cols =
+          second_offset_cols + (mpt_param_ptr_->l_inf_norm ? 0 : N_ref * l_idx);
+
+        A_blk.block(second_offset_rows, local_offset_cols, N_ref, N_ref) =
+          Eigen::MatrixXd::Identity(N_ref, N_ref);
+        A_blk.block(second_offset_rows + N_ref, local_offset_cols, N_ref, N_ref) =
+          Eigen::MatrixXd::Identity(N_ref, N_ref);
+        A_blk.block(second_offset_rows + 2 * N_ref, local_offset_cols, N_ref, N_ref) =
+          Eigen::MatrixXd::Identity(N_ref, N_ref);
+
+        // add additional clearance
+        lb_blk.segment(second_offset_rows, N_ref) =
+          lb_blk.segment(0, N_ref) -
+          Eigen::MatrixXd::Constant(N_ref, 1, mpt_param_ptr_->soft_second_clearance_from_road);
+        lb_blk.segment(second_offset_rows + N_ref, N_ref) =
+          lb_blk.segment(N_ref, N_ref) +
+          Eigen::MatrixXd::Constant(N_ref, 1, mpt_param_ptr_->soft_second_clearance_from_road);
+      }
+
+      A.block(A_rows_end, 0, A_blk_rows, A_cols) = A_blk;
+      lb.segment(A_rows_end, A_blk_rows) = lb_blk;
+
+      A_rows_end += A_blk_rows;
+    }
+
+    // hard constraints
+    if (
+      avoiding_constraint_type == 1 ||
+      avoiding_constraint_type == 2)
+    // soft + hard or hard
+    {
+      const size_t A_blk_rows = N_ref;
+
+      // A := [C * Bex | O ]
+      Eigen::MatrixXd A_blk = Eigen::MatrixXd::Zero(A_blk_rows, A_cols);
+      A_blk.block(0, 0, N_ref, N_ref) = CB;
+
+      // lb := [seq_bounds.lower_bound - bias
+      //        bias - seq_bounds.upper_bound
+      //               O            ]
+      const Eigen::VectorXd lb_blk = part_lb - bias;
+      const Eigen::VectorXd ub_blk = part_ub - bias;
+
+      A.block(A_rows_end, 0, A_blk_rows, A_cols) = A_blk;
+      lb.segment(A_rows_end, A_blk_rows) = lb_blk;
+      ub.segment(A_rows_end, A_blk_rows) = ub_blk;
+
+      A_rows_end += A_blk_rows;
+    }
+  }
+
+  // fixed points constraint
+  if (fixed_points_indices.size() > 0) {
+    const Eigen::VectorXd bias = mpt_mat.Wex;
+    const Eigen::MatrixXd CB = mpt_mat.Bex;
+
+    // Assign
+    for (const size_t i : fixed_points_indices) {
+      const size_t lat_error_row_idx = A_rows_end;
+      const size_t yaw_error_row_idx = lat_error_row_idx + 1;
+      // RCLCPP_ERROR_STREAM(rclcpp::get_logger("fixed"), i);
+      A.block(lat_error_row_idx, 0, 1, N_ref) = CB.block(i * N_kinematics, 0, 1, N_ref);
+      A.block(yaw_error_row_idx, 0, 1, N_ref) = CB.block(i * N_kinematics + 1, 0, 1, N_ref);
+
+      lb(lat_error_row_idx) = ref_points[i].fix_kinematics.get()(0) - bias(i * N_kinematics);
+      ub(lat_error_row_idx) = ref_points[i].fix_kinematics.get()(0) - bias(i * N_kinematics);
+
+      lb(yaw_error_row_idx) = ref_points[i].fix_kinematics.get()(1) - bias(i * N_kinematics + 1);
+      ub(yaw_error_row_idx) = ref_points[i].fix_kinematics.get()(1) - bias(i * N_kinematics + 1);
+
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger("fixed_condition"),
+        i << " " << ref_points[i].fix_kinematics.get()(0) - bias(i * N_kinematics) << " "
+          << ref_points[i].fix_kinematics.get()(1) - bias(i * N_kinematics + 1));
+
+      // TODO(murooka)
+      /*
+      if (i + 1 < N_ref) {
+        lb(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
+        ub(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
+      } else {
+        lb(A_rows_end + i) = -bias(i);
+        ub(A_rows_end + i) = -bias(i);
+      }
+      */
+      A_rows_end += N_kinematics;
+    }
+  }
+
+  // steer max limit
+  if (is_hard_steer_limit_) {
+    A.block(A_rows_end, N_kinematics, N_u, N_u) = Eigen::MatrixXd::Identity(N_u, N_u);
+    lb.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, -mpt_param_ptr_->max_steer_rad);
+    ub.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, mpt_param_ptr_->max_steer_rad);
+
+    A_rows_end += N_u;
+  }
+
+  ConstraintMatrix constraint_matrix;
+  constraint_matrix.linear = A;
+  for (size_t i = 0; i < static_cast<size_t>(lb.size()); ++i) {
+    constraint_matrix.lower_bound.push_back(lb(i));
+    constraint_matrix.upper_bound.push_back(ub(i));
+  }
+
+  return constraint_matrix;
+}
+/*
 {
   stop_watch_.tic(__func__);
 
@@ -1483,13 +1832,12 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
       // RCLCPP_ERROR_STREAM(rclcpp::get_logger("fixed"), i);
       fixed_points_indices.push_back(i);
     }
-    /*else if (
-               // TODO(murooka)
-      ref_points.at(i).fix_kinematics && i == ref_points.size() - 1 &&
-      mpt_param_ptr_->is_hard_fixing_terminal_point) {
-      fixed_points_indices.push_back(i);
-    }
-    */
+    //else if (
+    //           // TODO(murooka)
+    //  ref_points.at(i).fix_kinematics && i == ref_points.size() - 1 &&
+    //  mpt_param_ptr_->is_hard_fixing_terminal_point) {
+    //  fixed_points_indices.push_back(i);
+    //}
   }
 
   // calculate rows of A
@@ -1608,23 +1956,19 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
       ub.segment(A_rows_end, D_x) =
         ref_points[i].fix_kinematics.get() - mpt_mat.Wex.segment(i * D_x, D_x);
 
-      /*
-      RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger("fixed_condition"),
-        i << " " << ref_points[i].fix_kinematics.get()(0) - mpt_mat.Wex(i * D_x) << " "
-          << ref_points[i].fix_kinematics.get()(1) - mpt_mat.Wex(i * D_x + 1));
-      */
-
-      // TODO(murooka)
-      /*
-      if (i + 1 < N_ref) {
-        lb(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
-        ub(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
-      } else {
-        lb(A_rows_end + i) = -bias(i);
-        ub(A_rows_end + i) = -bias(i);
-      }
-      */
+      //RCLCPP_ERROR_STREAM(
+      //  rclcpp::get_logger("fixed_condition"),
+      //  i << " " << ref_points[i].fix_kinematics.get()(0) - mpt_mat.Wex(i * D_x) << " "
+      //    << ref_points[i].fix_kinematics.get()(1) - mpt_mat.Wex(i * D_x + 1));
+      //
+      //// TODO(murooka)
+      //if (i + 1 < N_ref) {
+      //  lb(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
+      //  ub(A_rows_end + i) = ref_points[i + 1].fix_kinematics.get()(0) - bias(i);
+      //} else {
+      //  lb(A_rows_end + i) = -bias(i);
+      //  ub(A_rows_end + i) = -bias(i);
+      //}
       A_rows_end += D_x;
     }
   }
@@ -1651,6 +1995,7 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
                              << " [ms]\n";
   return constraint_matrix;
 }
+*/
 
 void MPTOptimizer::setEgoData(
   const geometry_msgs::msg::Pose & current_pose, const double current_vel)

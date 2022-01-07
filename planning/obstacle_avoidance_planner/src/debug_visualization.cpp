@@ -765,7 +765,7 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
       debug_data_ptr->ref_points, 0.99, 0.99, 0.2, debug_data_ptr->avoiding_circle_radius,
       debug_data_ptr->visualize_sampling_num),
     &vis_marker_array);
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po16");
+
   /*
   // bounds candidates
   appendMarkerArray(
@@ -774,28 +774,28 @@ visualization_msgs::msg::MarkerArray getDebugVisualizationMarker(
       debug_data_ptr->avoiding_circle_radius, debug_data_ptr->visualize_sampling_num),
     &vis_marker_array);
   */
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po17");
+
   // vehicle circle line
   appendMarkerArray(
     getVehicleCircleLineMarkerArray(
       debug_data_ptr->vehicle_circles_pose, debug_data_ptr->avoiding_circle_radius,
       debug_data_ptr->visualize_sampling_num, "vehicle_circle_lines", 0.99, 0.99, 0.2),
     &vis_marker_array);
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po18");
+
   // lateral error line
   appendMarkerArray(
     getLateralErrorsLineMarkerArray(
       debug_data_ptr->mpt_ref_poses, debug_data_ptr->lateral_errors,
       debug_data_ptr->visualize_sampling_num, "lateral_errors", 0.1, 0.1, 0.8),
     &vis_marker_array);
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po19");
+
   // current vehicle circles
   appendMarkerArray(
     getCurrentVehicleCirclesMarkerArray(
       debug_data_ptr->current_ego_pose, debug_data_ptr->avoiding_circle_offsets,
       debug_data_ptr->avoiding_circle_radius, "current_vehicle_circles", 1.0, 0.3, 0.3),
     &vis_marker_array);
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), "po20");
+
   // vehicle circles
   appendMarkerArray(
     getVehicleCirclesMarkerArray(
