@@ -268,7 +268,9 @@ struct MPTParam
   double optimization_center_offset;
   double max_steer_rad;
   double steer_tau;
-  int avoiding_constraint_type;
+
+  bool soft_constraint;
+  bool hard_constraint;
   bool l_inf_norm;
   bool two_step_soft_constraint;
   bool plan_from_ego;
