@@ -196,6 +196,34 @@ int64_t OSQPInterface::initializeProblem(
   const Eigen::MatrixXd & P, const Eigen::MatrixXd & A, const std::vector<float64_t> & q,
   const std::vector<float64_t> & l, const std::vector<float64_t> & u)
 {
+  // check if arguments are valid
+  std::stringstream ss;
+  if (P.rows() != P.cols()) {
+    ss << "P.rows() and P.cols() are not the same. P.rows() = " << P.rows()
+       << ", P.cols() = " << P.cols();
+    throw std::invalid_argument(ss.str());
+  }
+  if (P.rows() != static_cast<int>(q.size())) {
+    ss << "P.rows() and q.size() are not the same. P.rows() = " << P.rows()
+       << ", q.size() = " << q.size();
+    throw std::invalid_argument(ss.str());
+  }
+  if (P.rows() != A.cols()) {
+    ss << "P.rows() and A.cols() are not the same. P.rows() = " << P.rows()
+       << ", A.cols() = " << A.cols();
+    throw std::invalid_argument(ss.str());
+  }
+  if (A.rows() != static_cast<int>(l.size())) {
+    ss << "A.rows() and l.size() are not the same. A.rows() = " << A.rows()
+       << ", l.size() = " << l.size();
+    throw std::invalid_argument(ss.str());
+  }
+  if (A.rows() != static_cast<int>(u.size())) {
+    ss << "A.rows() and u.size() are not the same. A.rows() = " << A.rows()
+       << ", u.size() = " << u.size();
+    throw std::invalid_argument(ss.str());
+  }
+
   CSC_Matrix P_csc = calCSCMatrixTrapezoidal(P);
   CSC_Matrix A_csc = calCSCMatrix(A);
   return initializeProblem(P_csc, A_csc, q, l, u);
