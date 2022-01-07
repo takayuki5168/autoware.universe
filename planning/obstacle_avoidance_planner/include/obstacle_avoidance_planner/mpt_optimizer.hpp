@@ -141,13 +141,19 @@ private:
   {
     // Eigen::MatrixXd Aex;
     Eigen::MatrixXd Bex;
-    Eigen::MatrixXd Wex;
+    Eigen::VectorXd Wex;
     // Eigen::SparseMatrix<double> Cex;
-    Eigen::SparseMatrix<double> Qex;
-    Eigen::SparseMatrix<double> Rex;
+    // Eigen::SparseMatrix<double> Qex;
+    // Eigen::SparseMatrix<double> Rex;
     // Eigen::MatrixXd R1ex;
     // Eigen::MatrixXd R2ex;
     // Eigen::MatrixXd Uref_ex;
+  };
+
+  struct ValueMatrix
+  {
+    Eigen::SparseMatrix<double> Qex;
+    Eigen::SparseMatrix<double> Rex;
   };
 
   struct ObjectiveMatrix
@@ -171,9 +177,8 @@ private:
 
   bool is_showing_debug_info_;
 
-  // constraint type for avoidance: 0.soft, 1.hard, 2.soft + hard
-  const bool is_fixed_points_ = false;  // true; // TODO(murooka)
-  const bool is_hard_steer_limit_ = true;
+  const bool is_fixed_points_ = false;      // true; // TODO(murooka)
+  const bool is_hard_steer_limit_ = false;  // TODO(murooka)
 
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
 
@@ -240,10 +245,14 @@ private:
    * cost function: J = Xex' * Qex * Xex + (Uex - Uref)' * R1ex * (Uex - Uref_ex) + Uex' * R2ex *
    * Uex Qex = diag([Q,Q,...]), R1ex = diag([R,R,...])
    */
-  boost::optional<MPTMatrix> generateMPTMatrix(
+  MPTMatrix generateMPTMatrix(
     const std::vector<ReferencePoint> & reference_points,
-    const autoware_auto_planning_msgs::msg::PathPoint & path_points,
     const std::unique_ptr<Trajectories> & prev_trajs,
+    std::shared_ptr<DebugData> debug_data_ptr) const;
+
+  ValueMatrix generateValueMatrix(
+    const std::vector<ReferencePoint> & reference_points,
+    const autoware_auto_planning_msgs::msg::PathPoint & last_path_pose,
     std::shared_ptr<DebugData> debug_data_ptr) const;
 
   void addSteerWeightR(Eigen::MatrixXd & R, const std::vector<ReferencePoint> & ref_points) const;
@@ -251,9 +260,8 @@ private:
   void addSteerWeightF(Eigen::VectorXd & f) const;
 
   boost::optional<Eigen::VectorXd> executeOptimization(
-    const bool enable_avoidance, const MPTMatrix & m,
-    const std::vector<ReferencePoint> & ref_points, const CVMaps & maps,
-    std::shared_ptr<DebugData> debug_data_ptr);
+    const bool enable_avoidance, const MPTMatrix & mpt_mat, const ValueMatrix & obj_mat,
+    const std::vector<ReferencePoint> & ref_points, std::shared_ptr<DebugData> debug_data_ptr);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getMPTPoints(
     std::vector<ReferencePoint> & fixed_ref_points,
@@ -283,13 +291,18 @@ private:
     const nav_msgs::msg::MapMetaData & map_info) const;
 
   ObjectiveMatrix getObjectiveMatrix(
-    const MPTMatrix & m, [[maybe_unused]] const std::vector<ReferencePoint> & ref_points,
+    const MPTMatrix & mpt_mat, const ValueMatrix & obj_mat,
+    [[maybe_unused]] const std::vector<ReferencePoint> & ref_points,
     std::shared_ptr<DebugData> debug_data_ptr) const;
 
   ConstraintMatrix getConstraintMatrix(
-    const bool enable_avoidance, const MPTMatrix & m, const CVMaps & maps,
+    const bool enable_avoidance, const MPTMatrix & mpt_mat,
     const std::vector<ReferencePoint> & ref_points,
     std::shared_ptr<DebugData> debug_data_ptr) const;
+
+  MPTMatrix translateMPTMatrix(
+    const MPTMatrix & mat, const std::vector<double> alpha_vec, const double offset,
+    const size_t D_x, const bool only_y = false) const;
 
 public:
   MPTOptimizer(

@@ -314,8 +314,8 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     mpt_param_ptr_->two_step_soft_constraint =
       declare_parameter<bool>("mpt.option.two_step_soft_constraint");
     mpt_param_ptr_->plan_from_ego = declare_parameter<bool>("mpt.option.plan_from_ego");
-    mpt_param_ptr_->avoiding_constraint_type =
-      declare_parameter<int>("mpt.option.avoiding_constraint_type");
+    mpt_param_ptr_->soft_constraint = declare_parameter<bool>("mpt.option.soft_constraint");
+    mpt_param_ptr_->hard_constraint = declare_parameter<bool>("mpt.option.hard_constraint");
     mpt_param_ptr_->is_hard_fixing_terminal_point =
       declare_parameter<bool>("mpt.option.is_hard_fixing_terminal_point");
 
@@ -598,8 +598,8 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<bool>(
       parameters, "mpt.option.two_step_soft_constraint", mpt_param_ptr_->two_step_soft_constraint);
     updateParam<bool>(parameters, "mpt.option.plan_from_ego", mpt_param_ptr_->plan_from_ego);
-    updateParam<int>(
-      parameters, "mpt.option.avoiding_constraint_type", mpt_param_ptr_->avoiding_constraint_type);
+    updateParam<bool>(parameters, "mpt.option.soft_constraint", mpt_param_ptr_->soft_constraint);
+    updateParam<bool>(parameters, "mpt.option.hard_constraint", mpt_param_ptr_->hard_constraint);
     updateParam<bool>(
       parameters, "mpt.option.is_hard_fixing_terminal_point",
       mpt_param_ptr_->is_hard_fixing_terminal_point);
