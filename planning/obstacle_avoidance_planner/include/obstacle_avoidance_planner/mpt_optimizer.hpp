@@ -125,6 +125,7 @@ struct ReferencePoint
 
   boost::optional<Eigen::Vector2d> fix_kinematics = boost::none;
   Eigen::Vector2d optimized_kinematics;
+  double optimized_input;
 
   //
   std::vector<boost::optional<double>> beta;
@@ -159,14 +160,14 @@ private:
   struct ObjectiveMatrix
   {
     Eigen::MatrixXd hessian;
-    std::vector<double> gradient;
+    Eigen::VectorXd gradient;
   };
 
   struct ConstraintMatrix
   {
     Eigen::MatrixXd linear;
-    std::vector<double> lower_bound;
-    std::vector<double> upper_bound;
+    Eigen::VectorXd lower_bound;
+    Eigen::VectorXd upper_bound;
   };
 
   struct MPTTrajs
@@ -260,6 +261,7 @@ private:
   void addSteerWeightF(Eigen::VectorXd & f) const;
 
   boost::optional<Eigen::VectorXd> executeOptimization(
+    const std::unique_ptr<Trajectories> & prev_trajs,
     const bool enable_avoidance, const MPTMatrix & mpt_mat, const ValueMatrix & obj_mat,
     const std::vector<ReferencePoint> & ref_points, std::shared_ptr<DebugData> debug_data_ptr);
 
