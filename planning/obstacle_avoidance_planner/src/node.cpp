@@ -318,6 +318,8 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     mpt_param_ptr_->hard_constraint = declare_parameter<bool>("mpt.option.hard_constraint");
     mpt_param_ptr_->is_hard_fixing_terminal_point =
       declare_parameter<bool>("mpt.option.is_hard_fixing_terminal_point");
+    mpt_param_ptr_->steer_limit_constraint =
+      declare_parameter<bool>("mpt.option.steer_limit_constraint");
 
     // common
     mpt_param_ptr_->num_curvature_sampling_points =
@@ -603,6 +605,9 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<bool>(
       parameters, "mpt.option.is_hard_fixing_terminal_point",
       mpt_param_ptr_->is_hard_fixing_terminal_point);
+    updateParam<bool>(
+      parameters, "mpt.option.steer_limit_constraint",
+      mpt_param_ptr_->steer_limit_constraint);
 
     // common
     updateParam<int>(

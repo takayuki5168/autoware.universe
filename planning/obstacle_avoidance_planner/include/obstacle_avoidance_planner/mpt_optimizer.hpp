@@ -178,7 +178,6 @@ private:
   bool is_showing_debug_info_;
 
   const bool is_fixed_points_ = false;      // true; // TODO(murooka)
-  const bool is_hard_steer_limit_ = false;  // TODO(murooka)
 
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
 
