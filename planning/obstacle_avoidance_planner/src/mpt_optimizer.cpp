@@ -369,7 +369,6 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
       traj_param_ptr_->num_sampling_points * mpt_param_ptr_->delta_arc_length_for_mpt_points +
       3.0;  // TODO(murooka) magic number
     ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length_with_margin);
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("ref_points"), ref_points.size());
 
     // set bounds information
     calcBounds(ref_points, enable_avoidance, maps, debug_data_ptr);
@@ -382,7 +381,6 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     const double ref_length =
       traj_param_ptr_->num_sampling_points * mpt_param_ptr_->delta_arc_length_for_mpt_points;
     ref_points = points_utils::clipForwardPoints(ref_points, 0, ref_length);
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("ref_points"), ref_points.size());
 
     // bounds information is assigned to debug data after truncating reference points
     debug_data_ptr->ref_points = ref_points;
@@ -390,7 +388,7 @@ std::vector<ReferencePoint> MPTOptimizer::getReferencePoints(
     return ref_points;
   }();
   if (ref_points.empty()) {
-    return ref_points;
+    return std::vector<ReferencePoint>{};
   }
 
   // TODO(murooka) think about it later
@@ -828,7 +826,6 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
    if (N_second_slack > 0) {
      full_f.segment(D_v + N_ref * N_first_slack, N_ref * N_second_slack) = mpt_param_ptr_->soft_second_avoidance_weight * Eigen::VectorXd::Ones(N_ref * N_second_slack);
    }
-   // RCLCPP_ERROR_STREAM(rclcpp::get_logger("popopo"), N_first_slack << " " << N_second_slack);
 
   ObjectiveMatrix obj_matrix;
   obj_matrix.hessian = full_H;
@@ -914,7 +911,7 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
     A_rows += N_ref * N_avoid;
   }
   A_rows += fixed_points_indices.size() * D_x;
-  if (is_hard_steer_limit_) {
+  if (mpt_param_ptr_->steer_limit_constraint) {
     A_rows += N_u;
   }
 
@@ -938,7 +935,7 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
       C_triplet_vec.push_back(Eigen::Triplet<double>(i, i * D_x, 1.0 * std::cos(beta)));
       C_triplet_vec.push_back(
         Eigen::Triplet<double>(i, i * D_x + 1, avoid_offset * std::cos(beta)));
-      C_vec(i) = -avoid_offset * std::sin(beta);
+      C_vec(i) = avoid_offset * std::sin(beta);
     }
     C_sparse_mat.setFromTriplets(C_triplet_vec.begin(), C_triplet_vec.end());
 
@@ -948,9 +945,6 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
 
     // calculate bounds
     const auto & [part_ub, part_lb] = extractBounds(ref_points, l_idx);
-    for (int b_idx = 0; b_idx < part_ub.rows(); ++b_idx) {
-      // RCLCPP_ERROR_STREAM(rclcpp::get_logger("bounds"), b_idx << " " << part_ub(b_idx) << " " << part_lb(b_idx));
-    }
 
     // soft constraints
     if (mpt_param_ptr_->soft_constraint) {
@@ -1043,7 +1037,7 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
   }
 
   // steer max limit
-  if (is_hard_steer_limit_) {
+  if (mpt_param_ptr_->steer_limit_constraint) {
     A.block(A_rows_end, D_x, N_u, N_u) = Eigen::MatrixXd::Identity(N_u, N_u);
     lb.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, -mpt_param_ptr_->max_steer_rad);
     ub.segment(A_rows_end, N_u) = Eigen::MatrixXd::Constant(N_u, 1, mpt_param_ptr_->max_steer_rad);
@@ -1058,8 +1052,6 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
     constraint_matrix.upper_bound.push_back(ub(i));
   }
 
-  RCLCPP_ERROR_STREAM(rclcpp::get_logger("constraint"), A_rows_end << " " << A_rows);
-
   debug_data_ptr->msg_stream << "          " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
   return constraint_matrix;
@@ -1071,41 +1063,8 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
   const MPTMatrix & mpt_mat, std::shared_ptr<DebugData> debug_data_ptr)
 {
   for (size_t i = 0; i < static_cast<size_t>(Uex.rows()); ++i) {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), i << " " << Uex(i));
+    // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), i << " " << Uex(i));
   }
-
-  /*
-  {
-    const size_t D_x = vehicle_model_ptr_->getDimX();
-    const size_t N_ref = non_fixed_ref_points.size();
-
-    const size_t D_xn = D_x * N_ref;
-
-    // generate T matrix and vector to shift optimization center
-    //   define Z as time-series vector of shifted deviation error
-    //   Z = sparse_T_mat * (Bex * U + Wex) + T_vec
-    Eigen::SparseMatrix<double> sparse_T_mat(D_xn, D_xn);
-    Eigen::VectorXd T_vec = Eigen::VectorXd::Zero(D_xn);
-    std::vector<Eigen::Triplet<double>> triplet_T_vec;
-    const double offset = mpt_param_ptr_->optimization_center_offset;
-
-    for (size_t i = 0; i < N_ref; ++i) {
-      const double alpha = non_fixed_ref_points.at(i).alpha;
-
-      triplet_T_vec.push_back(Eigen::Triplet<double>(i * D_x, i * D_x, std::cos(alpha)));
-      triplet_T_vec.push_back(Eigen::Triplet<double>(i * D_x, i * D_x + 1, offset * std::cos(alpha)));
-      triplet_T_vec.push_back(Eigen::Triplet<double>(i * D_x + 1, i * D_x + 1, 1.0));
-
-      T_vec(i * D_x) = -offset * std::sin(alpha);
-    }
-    sparse_T_mat.setFromTriplets(triplet_T_vec.begin(), triplet_T_vec.end());
-
-    Eigen::VectorXd x = sparse_T_mat * mpt_mat.Bex * Uex + mpt_mat.Wex + T_vec;
-    for (size_t i = 0; i < static_cast<size_t>(x.rows()); ++i) {
-      RCLCPP_ERROR_STREAM(rclcpp::get_logger("result"), i << " " << x(i));
-    }
-  }
-  */
 
   stop_watch_.tic(__func__);
 
@@ -1270,7 +1229,7 @@ void MPTOptimizer::calcExtraPoints(std::vector<ReferencePoint> & ref_points) con
 {
   for (size_t i = 0; i < ref_points.size(); ++i) {
     // alpha
-    const double front_wheel_s = ref_points.at(i).s + vehicle_param_ptr_->wheelbase;
+    const double front_wheel_s = ref_points.at(i).s + vehicle_param_ptr_->wheelbase; // TODO(murooka) use offset?
     const int front_wheel_nearest_idx = points_utils::getNearestIdx(ref_points, front_wheel_s, i);
     const auto front_wheel_pos = ref_points.at(front_wheel_nearest_idx).p;
 

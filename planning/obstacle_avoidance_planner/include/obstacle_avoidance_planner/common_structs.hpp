@@ -228,6 +228,7 @@ struct TrajectoryParam
 struct MPTParam
 {
   bool is_hard_fixing_terminal_point;
+  bool steer_limit_constraint;
   int num_curvature_sampling_points;
 
   std::vector<double> avoiding_circle_offsets;  // from base_link
