@@ -169,6 +169,9 @@ std::vector<ReferencePoint> ref_points, const double offset, const size_t D_x)
 }
 */
 
+std::vector<double> eigenVectorToStdVector(const Eigen::VectorXd & eigen_vec) {
+  return {eigen_vec.data(), eigen_vec.data() + eigen_vec.rows()};
+}
 }  // namespace
 
 MPTOptimizer::MPTOptimizer(
@@ -256,7 +259,7 @@ boost::optional<MPTOptimizer::MPTTrajs> MPTOptimizer::getModelPredictiveTrajecto
   const auto val_matrix =
     generateValueMatrix(non_fixed_ref_points, path_points.back(), debug_data_ptr);
 
-  const auto optimized_control_variables = executeOptimization(
+  const auto optimized_control_variables = executeOptimization(prev_trajs,
     enable_avoidance, mpt_matrix, val_matrix, non_fixed_ref_points, debug_data_ptr);
   if (!optimized_control_variables) {
     RCLCPP_INFO_EXPRESSION(
@@ -662,6 +665,7 @@ MPTOptimizer::ValueMatrix MPTOptimizer::generateValueMatrix(
 }
 
 boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
+  [[maybe_unused]] const std::unique_ptr<Trajectories> & prev_trajs,
   const bool enable_avoidance, const MPTMatrix & mpt_mat, const ValueMatrix & val_mat,
   const std::vector<ReferencePoint> & ref_points, std::shared_ptr<DebugData> debug_data_ptr)
 {
@@ -671,31 +675,80 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
 
   stop_watch_.tic(__func__);
 
+  const size_t N_ref = ref_points.size();
+
+  // get matrix
   ObjectiveMatrix obj_m = getObjectiveMatrix(mpt_mat, val_mat, ref_points, debug_data_ptr);
   ConstraintMatrix const_m =
     getConstraintMatrix(enable_avoidance, mpt_mat, ref_points, debug_data_ptr);
 
+  // manual warm start
+  const bool manual_warm_start = false;
+  Eigen::VectorXd u0 = Eigen::VectorXd::Zero(obj_m.gradient.size());
+
+  if (manual_warm_start) {
+    const size_t D_x = vehicle_model_ptr_->getDimX();
+
+    if (prev_trajs && prev_trajs->mpt_ref_points.size() > 1) {
+      const size_t seg_idx = tier4_autoware_utils::findNearestSegmentIndex(prev_trajs->mpt_ref_points, ref_points.front().p);
+      double offset = tier4_autoware_utils::calcLongitudinalOffsetToSegment(prev_trajs->mpt_ref_points, seg_idx, ref_points.front().p);
+
+      u0(0) = prev_trajs->mpt_ref_points.at(seg_idx).optimized_kinematics(0);
+      u0(1) = prev_trajs->mpt_ref_points.at(seg_idx).optimized_kinematics(1);
+
+      for (size_t i = 0; i + 1 < N_ref; ++i) {
+        size_t prev_idx = seg_idx + i;
+        const size_t prev_N_ref = prev_trajs->mpt_ref_points.size();
+        if (prev_idx + 2 > prev_N_ref) {
+          prev_idx = static_cast<int>(prev_N_ref) - 2;
+          offset = 0.5;
+        }
+
+        const double prev_val = prev_trajs->mpt_ref_points.at(prev_idx).optimized_input;
+        const double next_val = prev_trajs->mpt_ref_points.at(prev_idx + 1).optimized_input;
+        u0(D_x + i) = interpolation::lerp(prev_val, next_val, offset);
+      }
+    }
+  }
+
+  const Eigen::MatrixXd & H = obj_m.hessian;
+  const Eigen::MatrixXd & A = const_m.linear;
+  std::vector<double> f;
+  std::vector<double> upper_bound;
+  std::vector<double> lower_bound;
+  if (manual_warm_start) {
+    f = eigenVectorToStdVector(obj_m.gradient + H * u0);
+    Eigen::VectorXd A_times_u0 = A * u0;
+    upper_bound = eigenVectorToStdVector(const_m.upper_bound - A_times_u0);
+    lower_bound = eigenVectorToStdVector(const_m.lower_bound - A_times_u0);
+  } else {
+    f = eigenVectorToStdVector(obj_m.gradient);
+    upper_bound = eigenVectorToStdVector(const_m.upper_bound);
+    lower_bound = eigenVectorToStdVector(const_m.lower_bound);
+  }
+
+  // initialize or update solver with warm start
   stop_watch_.tic("initOsqp");
   autoware::common::osqp::CSC_Matrix P_csc =
-    autoware::common::osqp::calCSCMatrixTrapezoidal(obj_m.hessian);
-  autoware::common::osqp::CSC_Matrix A_csc = autoware::common::osqp::calCSCMatrix(const_m.linear);
-  if (prev_mat_n == obj_m.hessian.rows() && prev_mat_m == const_m.linear.rows()) {
+    autoware::common::osqp::calCSCMatrixTrapezoidal(H);
+  autoware::common::osqp::CSC_Matrix A_csc = autoware::common::osqp::calCSCMatrix(A);
+  if (prev_mat_n == H.rows() && prev_mat_m == A.rows()) {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("obstacle_avoidance_planner.time"), "warm start");
 
     osqp_solver_ptr_->updateCscP(P_csc);
-    osqp_solver_ptr_->updateQ(obj_m.gradient);
+    osqp_solver_ptr_->updateQ(f);
     osqp_solver_ptr_->updateCscA(A_csc);
-    osqp_solver_ptr_->updateL(const_m.lower_bound);
-    osqp_solver_ptr_->updateU(const_m.upper_bound);
+    osqp_solver_ptr_->updateL(lower_bound);
+    osqp_solver_ptr_->updateU(upper_bound);
   } else {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("obstacle_avoidance_planner.time"), "no warm start");
 
     osqp_solver_ptr_ = std::make_unique<autoware::common::osqp::OSQPInterface>(
       // obj_m.hessian, const_m.linear, obj_m.gradient, const_m.lower_bound, const_m.upper_bound,
-      P_csc, A_csc, obj_m.gradient, const_m.lower_bound, const_m.upper_bound, 1.0e-3);
+      P_csc, A_csc, f, lower_bound, upper_bound, 1.0e-3);
   }
-  prev_mat_n = obj_m.hessian.rows();
-  prev_mat_m = const_m.linear.rows();
+  prev_mat_n = H.rows();
+  prev_mat_m = A.rows();
 
   // osqp_solver_ptr_ = std::make_unique<autoware::common::osqp::OSQPInterface>(
   //  obj_m.hessian, const_m.linear, obj_m.gradient, const_m.lower_bound, const_m.upper_bound,
@@ -727,7 +780,6 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   // get result
   std::vector<double> result_vec = std::get<0>(result);
 
-  const size_t N_ref = ref_points.size();
   const size_t DIM_U = vehicle_model_ptr_->getDimU();
   const size_t DIM_X = vehicle_model_ptr_->getDimX();
   const Eigen::VectorXd optimized_control_variables =
@@ -737,7 +789,11 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   // debug_data_ptr->msg_stream << "        " << __func__ <<
   //":= " << stop_watch_.toc(__func__)  << " [ms]\n";
 
-  return optimized_control_variables;
+  // RCLCPP_ERROR_STREAM(rclcpp::get_logger("norm"), optimized_control_variables.norm());
+
+  const Eigen::VectorXd optimized_control_variables_with_offset = manual_warm_start ? optimized_control_variables + u0
+    : optimized_control_variables;
+  return optimized_control_variables_with_offset;
 }
 
 
@@ -831,7 +887,7 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::getObjectiveMatrix(
 
   ObjectiveMatrix obj_matrix;
   obj_matrix.hessian = full_H;
-  obj_matrix.gradient = {full_f.data(), full_f.data() + full_f.rows()};
+  obj_matrix.gradient = full_f; // {full_f.data(), full_f.data() + full_f.rows()};
 
   debug_data_ptr->msg_stream << "          " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
@@ -1049,10 +1105,8 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::getConstraintMatrix(
 
   ConstraintMatrix constraint_matrix;
   constraint_matrix.linear = A;
-  for (size_t i = 0; i < static_cast<size_t>(lb.size()); ++i) {
-    constraint_matrix.lower_bound.push_back(lb(i));
-    constraint_matrix.upper_bound.push_back(ub(i));
-  }
+  constraint_matrix.lower_bound = lb;
+  constraint_matrix.upper_bound = ub;
 
   debug_data_ptr->msg_stream << "          " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
@@ -1064,6 +1118,10 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
   std::vector<ReferencePoint> & non_fixed_ref_points, const Eigen::VectorXd & Uex,
   const MPTMatrix & mpt_mat, std::shared_ptr<DebugData> debug_data_ptr)
 {
+  const size_t D_x = vehicle_model_ptr_->getDimX();
+  const size_t D_u = vehicle_model_ptr_->getDimU();
+  const size_t N_ref = static_cast<size_t>(Uex.rows() - D_x) + 1;
+
   for (size_t i = 0; i < static_cast<size_t>(Uex.rows()); ++i) {
     // RCLCPP_ERROR_STREAM(rclcpp::get_logger("po"), i << " " << Uex(i));
   }
@@ -1129,6 +1187,11 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
     debug_data_ptr->lateral_errors.push_back(lat_error);
 
     ref_point.optimized_kinematics << lat_error_vec.at(i), yaw_error_vec.at(i);
+    if (i == N_ref - 1) {
+      ref_point.optimized_input = 0.0;
+    } else {
+      ref_point.optimized_input = Uex(D_x + i * D_u);
+    }
 
     autoware_auto_planning_msgs::msg::TrajectoryPoint traj_point;
     traj_point.pose = calcVehiclePose(ref_point, lat_error, yaw_error, 0.0);
