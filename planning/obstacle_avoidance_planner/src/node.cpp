@@ -441,21 +441,25 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
   using tier4_autoware_utils::updateParam;
 
   {  // option parameter
+    /*
     updateParam<bool>(
       parameters, "option.is_publishing_clearance_map", is_publishing_clearance_map_);
     updateParam<bool>(
       parameters, "option.is_publishing_object_clearance_map", is_publishing_object_clearance_map_);
     updateParam<bool>(
       parameters, "option.is_publishing_area_with_objects", is_publishing_area_with_objects_);
+    */
 
     updateParam<bool>(parameters, "option.is_showing_debug_info", is_showing_debug_info_);
     updateParam<bool>(
       parameters, "option.is_showing_calculation_time", is_showing_calculation_time_);
 
+    /*
     updateParam<bool>(
       parameters, "option.is_stopping_if_outside_drivable_area",
       is_stopping_if_outside_drivable_area_);
     updateParam<bool>(parameters, "option.is_using_vehicle_config", is_using_vehicle_config_);
+    */
     updateParam<bool>(parameters, "option.enable_avoidance", enable_avoidance_);
     updateParam<int>(parameters, "option.visualize_sampling_num", visualize_sampling_num_);
   }
@@ -473,6 +477,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "common.delta_arc_length_for_trajectory",
       traj_param_ptr_->delta_arc_length_for_trajectory);
 
+    /*
     updateParam<double>(
       parameters, "common.delta_dist_threshold_for_closest_point",
       traj_param_ptr_->delta_dist_threshold_for_closest_point);
@@ -489,7 +494,9 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "common.max_dist_for_extending_end_point",
       traj_param_ptr_->max_dist_for_extending_end_point);
+    */
 
+    /*
     // object
     updateParam<double>(
       parameters, "object.max_avoiding_ego_velocity_ms",
@@ -515,8 +522,10 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       traj_param_ptr_->is_avoiding_pedestrian);
     updateParam<bool>(
       parameters, "object.avoiding_object_type.animal", traj_param_ptr_->is_avoiding_animal);
+    */
   }
 
+  /*
   {  // elastic band parameter
     // optionn
     updateParam<bool>(
@@ -587,12 +596,11 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "eb.qp.eps_rel_for_visualizing", eb_param_ptr_->qp_param.eps_rel_for_visualizing);
 
     // other
-    /*
-    eb_param_ptr_->clearance_for_fixing = 0.0;
-    eb_param_ptr_->min_object_clearance_for_deceleration
-      = eb_param_ptr_->clearance_from_object + eb_param_ptr_->keep_space_shape_y * 0.5;
-    */
+    // eb_param_ptr_->clearance_for_fixing = 0.0;
+    // eb_param_ptr_->min_object_clearance_for_deceleration
+    //   = eb_param_ptr_->clearance_from_object + eb_param_ptr_->keep_space_shape_y * 0.5;
   }
+  */
 
   {  // mpt param
     // option
@@ -807,7 +815,7 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleAvoidancePlanner::generateT
     std::make_unique<std::vector<autoware_auto_planning_msgs::msg::PathPoint>>(path.points);
 
   // publish debug data
-  publishDebugData(path, optimized_traj_points, *vehicle_param_ptr_);
+  // publishDebugData(path, optimized_traj_points, *vehicle_param_ptr_);
 
   {  // print and publish debug msg
     debug_data_ptr_->msg_stream << __func__ << ":= " << stop_watch_.toc(__func__) << " [ms]\n"
@@ -880,6 +888,9 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
   // make previous trajectories
   prev_optimal_trajs_ptr_ =
     std::make_unique<Trajectories>(makePrevTrajectories(path.points, optimal_trajs));
+
+  // publish debug data TODO(murooka) where to put this function
+  publishDebugData(path, optimal_trajs.model_predictive_trajectory, *vehicle_param_ptr_);
 
   debug_data_ptr_->msg_stream << "  " << __func__ << ":= " << stop_watch_.toc(__func__)
                               << " [ms]\n";
