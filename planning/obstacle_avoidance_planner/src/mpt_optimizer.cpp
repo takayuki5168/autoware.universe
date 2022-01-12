@@ -648,6 +648,8 @@ MPTOptimizer::ValueMatrix MPTOptimizer::generateValueMatrix(
     Rex_triplet_vec.push_back(
       Eigen::Triplet<double>(D_x + D_u * i, D_x + D_u * i, adaptive_steer_weight));
   }
+  addSteerWeightR(Rex_triplet_vec, ref_points);
+
   Rex_sparse_mat.setFromTriplets(Rex_triplet_vec.begin(), Rex_triplet_vec.end());
 
   ValueMatrix m;
@@ -1130,6 +1132,7 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
 
     autoware_auto_planning_msgs::msg::TrajectoryPoint traj_point;
     traj_point.pose = calcVehiclePose(ref_point, lat_error, yaw_error, 0.0);
+
     traj_point.longitudinal_velocity_mps = ref_point.v;
     traj_points.push_back(traj_point);
 
@@ -1151,6 +1154,24 @@ std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> MPTOptimizer::get
       }
     }
   }
+
+  /*
+  for (size_t i = 0; i < lat_error_vec.size(); ++i) {
+    auto & ref_point = (i < fixed_ref_points.size())
+                         ? fixed_ref_points.at(i)
+                         : non_fixed_ref_points.at(i - fixed_ref_points.size());
+
+    if (i > 0 && traj_points.size() > 1) {
+      traj_points.at(i).pose.orientation = geometry_utils::getQuaternionFromPoints(
+                                                                         traj_points.at(i).pose.position, traj_points.at(i - 1).pose.position);
+    } else if (traj_points.size() > 1) {
+      traj_points.at(i).pose.orientation = geometry_utils::getQuaternionFromPoints(
+                                                                         traj_points.at(i + 1).pose.position, traj_points.at(i).pose.position);
+    } else {
+      traj_points.at(i).pose.orientation = tier4_autoware_utils::createQuaternionFromYaw(ref_point.yaw);
+    }
+  }
+  */
 
   debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
@@ -1265,26 +1286,34 @@ void MPTOptimizer::calcExtraPoints(std::vector<ReferencePoint> & ref_points) con
 }
 
 void MPTOptimizer::addSteerWeightR(
-  Eigen::MatrixXd & R, const std::vector<ReferencePoint> & ref_points) const
+  std::vector<Eigen::Triplet<double>> & Rex_triplet_vec, const std::vector<ReferencePoint> & ref_points) const
 {
-  const size_t N = ref_points.size();
-  constexpr double DT = 0.1;
-  constexpr double ctrl_period = 0.03;
+  const size_t D_x = vehicle_model_ptr_->getDimX();
+  const size_t D_u = vehicle_model_ptr_->getDimU();
+  const size_t N_ref = ref_points.size();
+  const size_t N_u = (N_ref - 1) * D_u;
+  const size_t D_v = D_x + N_u;
 
-  /* add steering rate : weight for (u(i) - u(i-1) / dt )^2 */
-  for (size_t i = 0; i < N - 1; ++i) {
-    const double steer_rate_r = mpt_param_ptr_->steer_rate_weight / (DT * DT);
-    R(i + 0, i + 0) += steer_rate_r;
-    R(i + 1, i + 0) -= steer_rate_r;
-    R(i + 0, i + 1) -= steer_rate_r;
-    R(i + 1, i + 1) += steer_rate_r;
+  // add steering rate : weight for (u(i) - u(i-1))^2
+  for (size_t i = D_x; i < D_v - 1; ++i) {
+    Rex_triplet_vec.push_back(
+      Eigen::Triplet<double>(i, i, mpt_param_ptr_->steer_rate_weight));
+    Rex_triplet_vec.push_back(
+      Eigen::Triplet<double>(i + 1, i, -mpt_param_ptr_->steer_rate_weight));
+    Rex_triplet_vec.push_back(
+      Eigen::Triplet<double>(i, i + 1, -mpt_param_ptr_->steer_rate_weight));
+    Rex_triplet_vec.push_back(
+      Eigen::Triplet<double>(i + 1, i + 1, mpt_param_ptr_->steer_rate_weight));
   }
+  /*
   if (N > 1) {
     // steer rate i = 0
     R(0, 0) += mpt_param_ptr_->steer_rate_weight / (ctrl_period * ctrl_period);
   }
+  */
 
-  /* add steering acceleration : weight for { (u(i+1) - 2*u(i) + u(i-1)) / dt^2 }^2 */
+  /*
+  // add steering acceleration : weight for { (u(i+1) - 2*u(i) + u(i-1)) / dt^2 }^2
   const double steer_acc_r = mpt_param_ptr_->steer_acc_weight / std::pow(DT, 4);
   const double steer_acc_r_cp1 = mpt_param_ptr_->steer_acc_weight / (std::pow(DT, 3) * ctrl_period);
   const double steer_acc_r_cp2 =
@@ -1310,6 +1339,7 @@ void MPTOptimizer::addSteerWeightR(
     // steer acc i = 0
     R(0, 0) += steer_acc_r_cp4 * 1.0;
   }
+  */
 }
 
 void MPTOptimizer::addSteerWeightF(Eigen::VectorXd & f) const

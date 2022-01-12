@@ -254,7 +254,8 @@ private:
     const autoware_auto_planning_msgs::msg::PathPoint & last_path_pose,
     std::shared_ptr<DebugData> debug_data_ptr) const;
 
-  void addSteerWeightR(Eigen::MatrixXd & R, const std::vector<ReferencePoint> & ref_points) const;
+  void addSteerWeightR(
+    std::vector<Eigen::Triplet<double>> & Rex_triplet_vec, const std::vector<ReferencePoint> & ref_points) const;
 
   void addSteerWeightF(Eigen::VectorXd & f) const;
 
