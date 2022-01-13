@@ -178,8 +178,6 @@ private:
 
   bool is_showing_debug_info_;
 
-  const bool is_fixed_points_ = true;      // true; // TODO(murooka)
-
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
 
   std::unique_ptr<MPTParam> mpt_param_ptr_;

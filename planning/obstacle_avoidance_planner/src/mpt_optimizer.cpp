@@ -419,7 +419,7 @@ std::vector<ReferencePoint> MPTOptimizer::getFixedReferencePoints(
     return std::vector<ReferencePoint>();
   }
 
-  if (!is_fixed_points_) {
+  if (!mpt_param_ptr_->fix_points_around_ego) {
     return std::vector<ReferencePoint>();
   }
 
