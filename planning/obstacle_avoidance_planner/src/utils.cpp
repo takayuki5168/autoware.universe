@@ -571,6 +571,10 @@ void compensateLastPose(
   const TrajectoryParam & traj_param,
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & traj_points)
 {
+  if (traj_points.empty()) {
+    return;
+  }
+
   const geometry_msgs::msg::Pose last_pose = traj_points.back().pose;
   const auto extended_point_opt = getLastExtendedTrajPoint(
     last_path_point, last_pose, traj_param.delta_yaw_threshold_for_closest_point,

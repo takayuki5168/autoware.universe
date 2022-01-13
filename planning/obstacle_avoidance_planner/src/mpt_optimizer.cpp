@@ -1561,6 +1561,12 @@ void MPTOptimizer::calcVehicleBounds(
 {
   stop_watch_.tic(__func__);
 
+  if (ref_points.size() == 1) {
+    for ([[maybe_unused]] const double d : mpt_param_ptr_->avoiding_circle_offsets) {
+      ref_points.at(0).vehicle_bounds.push_back(ref_points.at(0).bounds);
+    }
+  }
+
   SplineInterpolation2d ref_points_spline_interpolation;
   ref_points_spline_interpolation.calcSplineCoefficients(ref_points);
 

@@ -100,6 +100,7 @@ private:
   bool is_using_vehicle_config_;
   bool enable_avoidance_;
   bool enable_pre_smoothing_;
+  bool skip_optimization_;
   bool reset_prev_info_;
   bool use_footprint_for_drivability_;
 
