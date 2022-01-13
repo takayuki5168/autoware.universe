@@ -123,8 +123,8 @@ struct ReferencePoint
   Bounds bounds;
   bool near_objects;
 
-  boost::optional<Eigen::Vector2d> fix_kinematics = boost::none;
-  Eigen::Vector2d optimized_kinematics;
+  boost::optional<Eigen::Vector2d> fix_kinematic_state = boost::none;
+  Eigen::Vector2d optimized_kinematic_state;
   double optimized_input;
 
   //
@@ -201,6 +201,8 @@ private:
     const std::unique_ptr<Trajectories> & prev_mpt_points, const bool enable_avoidance,
     const CVMaps & maps, std::shared_ptr<DebugData> debug_data_ptr) const;
 
+  void calcFixKinematicState(std::vector<ReferencePoint> & ref_points) const;
+
   /*
   std::vector<ReferencePoint> convertToReferencePoints(
     const std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> & points,
@@ -270,12 +272,6 @@ private:
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> getMPTFixedPoints(
     const std::vector<ReferencePoint> & ref_points) const;
-
-  double calcLateralError(
-    const geometry_msgs::msg::Point & target_point, const ReferencePoint & ref_point) const;
-
-  Eigen::Vector2d getState(
-    const geometry_msgs::msg::Pose & ego_pose, const ReferencePoint & nearest_ref_point) const;
 
   BoundsCandidates getBoundsCandidates(
     const bool enable_avoidance, const geometry_msgs::msg::Pose & avoiding_point,

@@ -49,12 +49,6 @@ private:
     double velocity;
   };
 
-  struct ConstrainRectangles
-  {
-    ConstrainRectangle object_constrain_rectangle;
-    ConstrainRectangle road_constrain_rectangle;
-  };
-
   struct ConstrainLines
   {
     double x_coef;
@@ -77,22 +71,15 @@ private:
     geometry_msgs::msg::Point bottom_right;
   };
 
-  struct OccupancyMaps
+  struct ObjectiveMatrix
   {
-    std::vector<std::vector<int>> object_occupancy_map;
-    std::vector<std::vector<int>> road_occupancy_map;
-  };
-
-  enum class OptMode : int {
-    Normal = 0,
-    Extending = 1,
-    Visualizing = 2,
+    Eigen::MatrixXd hessian;
+    Eigen::VectorXd gradient;
   };
 
   const bool is_showing_debug_info_;
   const double epsilon_;
 
-  const QPParam qp_param_;
   const TrajectoryParam traj_param_;
   const EBParam eb_param_;
   const VehicleParam vehicle_param_;
@@ -100,12 +87,13 @@ private:
   Eigen::MatrixXd default_a_matrix_;
   std::unique_ptr<geometry_msgs::msg::Vector3> keep_space_shape_ptr_;
   std::unique_ptr<autoware::common::osqp::OSQPInterface> osqp_solver_ptr_;
-  std::unique_ptr<autoware::common::osqp::OSQPInterface> ex_osqp_solver_ptr_;
-  std::unique_ptr<autoware::common::osqp::OSQPInterface> vis_osqp_solver_ptr_;
 
   mutable tier4_autoware_utils::StopWatch<
     std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock>
     stop_watch_;
+
+  std::shared_ptr<DebugData> debug_data_ptr_;
+  // ObjectiveMatrix obj_mat_;
 
   void initializeSolver();
 
@@ -131,31 +119,16 @@ private:
     const Anchor & anchor, const double min_x, const double max_x, const double min_y,
     const double max_y) const;
 
-  ConstrainRectangle getUpdatedConstrainRectangle(
-    const ConstrainRectangle & rectangle, const geometry_msgs::msg::Point & candidate_point,
-    const nav_msgs::msg::MapMetaData & map_info, const cv::Mat & only_objects_clearance_map) const;
-
-  OccupancyMaps getOccupancyMaps(
-    const std::vector<std::vector<geometry_msgs::msg::Point>> & occupancy_points,
-    const geometry_msgs::msg::Pose & origin_pose,
-    const geometry_msgs::msg::Point & origin_point_in_image, const cv::Mat & clearance_map,
-    const cv::Mat & only_objects_clearance_map, const nav_msgs::msg::MapMetaData & map_info) const;
-
   int getStraightLineIdx(
     const std::vector<geometry_msgs::msg::Point> & interpolated_points,
-    const int farthest_point_idx, const cv::Mat & only_objects_clearance,
+    const int farthest_point_idx,
     const nav_msgs::msg::MapMetaData & map_info,
     std::vector<geometry_msgs::msg::Point> & debug_detected_straight_points);
-
-  bool isClose2Object(
-    const geometry_msgs::msg::Point & point, const nav_msgs::msg::MapMetaData & map_info,
-    const cv::Mat & only_objects_clearance_map, const double distance_threshold) const;
 
   boost::optional<std::vector<ConstrainRectangle>> getConstrainRectangleVec(
     const autoware_auto_planning_msgs::msg::Path & path,
     const std::vector<geometry_msgs::msg::Point> & interpolated_points, const int num_fixed_points,
-    const int farthest_point_idx, const int straight_idx, const cv::Mat & clearance_map,
-    const cv::Mat & only_objects_clearance_map);
+    const int farthest_point_idx, const int straight_idx);
 
   std::vector<geometry_msgs::msg::Point> getPaddedInterpolatedPoints(
     const std::vector<geometry_msgs::msg::Point> & interpolated_points, const int farthest_idx);
@@ -166,13 +139,12 @@ private:
 
   boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>>
   getOptimizedTrajectory(
-    const bool enable_avoidance, const autoware_auto_planning_msgs::msg::Path & path,
-    const CandidatePoints & candidate_points, const cv::Mat & clearance_map,
-    const cv::Mat & only_objects_clearance_map, std::shared_ptr<DebugData> debug_data_ptr);
+    const autoware_auto_planning_msgs::msg::Path & path,
+    const CandidatePoints & candidate_points);
 
   void updateConstrain(
     const std::vector<geometry_msgs::msg::Point> & interpolated_points,
-    const std::vector<ConstrainRectangle> & rectangle_points, const OptMode & opt_mode);
+    const std::vector<ConstrainRectangle> & rectangle_points);
 
   std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> convertOptimizedPointsToTrajectory(
     const std::vector<double> optimized_points, const std::vector<ConstrainRectangle> & constraint,
@@ -181,29 +153,17 @@ private:
   std::vector<geometry_msgs::msg::Pose> getFixedPoints(
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::unique_ptr<Trajectories> & prev_optimized_points, const cv::Mat & drivable_area,
-    const nav_msgs::msg::MapMetaData & map_info);
+    const std::unique_ptr<Trajectories> & prev_optimized_points, const cv::Mat & drivable_area);
 
   CandidatePoints getCandidatePoints(
     const geometry_msgs::msg::Pose & ego_pose,
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points,
-    const std::unique_ptr<Trajectories> & prev_trajs, const cv::Mat & drivable_area,
-    const nav_msgs::msg::MapMetaData & map_info, std::shared_ptr<DebugData> debug_data_ptr);
+    const std::unique_ptr<Trajectories> & prev_trajs, const cv::Mat & drivable_area);
 
   CandidatePoints getDefaultCandidatePoints(
     const std::vector<autoware_auto_planning_msgs::msg::PathPoint> & path_points);
 
-  std::vector<double> solveQP(const OptMode & opt_mode);
-
-  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> calculateTrajectory(
-    const std::vector<geometry_msgs::msg::Point> & padded_interpolated_points,
-    const std::vector<ConstrainRectangle> & constrain_rectangles, const int farthest_idx,
-    const OptMode & opt_mode, std::shared_ptr<DebugData> debug_data_ptr);
-
-  // TODO(murooka) refactor this when enable_avoidance becomes true
-  FOAData getFOAData(
-    const std::vector<ConstrainRectangle> & rectangles,
-    const std::vector<geometry_msgs::msg::Point> & interpolated_points, const int farthest_idx);
+  std::vector<double> solveQP();
 
 public:
   EBPathOptimizer(
@@ -211,7 +171,7 @@ public:
     const VehicleParam & vehicle_param);
 
   boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>> getEBTrajectory(
-    const bool enable_avoidance, const geometry_msgs::msg::Pose & ego_pose,
+    const geometry_msgs::msg::Pose & ego_pose,
     const autoware_auto_planning_msgs::msg::Path & path,
     const std::unique_ptr<Trajectories> & prev_trajs, const CVMaps & cv_maps,
     std::shared_ptr<DebugData> debug_data_ptr);

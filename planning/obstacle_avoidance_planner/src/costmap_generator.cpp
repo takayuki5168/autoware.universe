@@ -147,8 +147,7 @@ CVMaps CostmapGenerator::getMaps(
   const std::vector<autoware_auto_perception_msgs::msg::PredictedObject> & objects,
   const TrajectoryParam & traj_param, std::shared_ptr<DebugData> debug_data_ptr)
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic(__func__);
+  stop_watch_.tic(__func__);
 
   // make cv_maps
   CVMaps cv_maps;
@@ -171,7 +170,7 @@ CVMaps CostmapGenerator::getMaps(
   debug_data_ptr->only_object_clearance_map = cv_maps.only_objects_clearance_map;
   debug_data_ptr->area_with_objects_map = cv_maps.area_with_objects_map;
   debug_data_ptr->avoiding_objects = debug_avoiding_objects;
-  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch.toc(__func__)
+  debug_data_ptr->msg_stream << "    " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
   return cv_maps;
 }
@@ -180,8 +179,7 @@ cv::Mat CostmapGenerator::getDrivableAreaInCV(
   const nav_msgs::msg::OccupancyGrid & occupancy_grid,
   std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic(__func__);
+  stop_watch_.tic(__func__);
 
   cv::Mat drivable_area = cv::Mat(occupancy_grid.info.width, occupancy_grid.info.height, CV_8UC1);
 
@@ -189,7 +187,7 @@ cv::Mat CostmapGenerator::getDrivableAreaInCV(
     cv_utils::getOccupancyGridValue(occupancy_grid, position[0], position[1], value);
   });
 
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc(__func__)
+  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
   return drivable_area;
 }
@@ -197,13 +195,12 @@ cv::Mat CostmapGenerator::getDrivableAreaInCV(
 cv::Mat CostmapGenerator::getClearanceMap(
   const cv::Mat & drivable_area, std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic(__func__);
+  stop_watch_.tic(__func__);
 
   cv::Mat clearance_map;
   cv::distanceTransform(drivable_area, clearance_map, cv::DIST_L2, 5);
 
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc(__func__)
+  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
   return clearance_map;
 }
@@ -217,8 +214,7 @@ cv::Mat CostmapGenerator::drawObstaclesOnImage(
   std::vector<autoware_auto_perception_msgs::msg::PredictedObject> * debug_avoiding_objects,
   std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic(__func__);
+  stop_watch_.tic(__func__);
 
   std::vector<autoware_auto_planning_msgs::msg::PathPoint> path_points_inside_area;
   for (const auto & point : path_points) {
@@ -321,7 +317,7 @@ cv::Mat CostmapGenerator::drawObstaclesOnImage(
   }
   */
 
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc(__func__)
+  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
 
   return objects_image;
@@ -331,12 +327,11 @@ cv::Mat CostmapGenerator::getAreaWithObjects(
   const cv::Mat & drivable_area, const cv::Mat & objects_image,
   std::shared_ptr<DebugData> debug_data_ptr) const
 {
-  tier4_autoware_utils::StopWatch stop_watch;
-  stop_watch.tic(__func__);
+  stop_watch_.tic(__func__);
 
   cv::Mat area_with_objects = cv::min(objects_image, drivable_area);
 
-  debug_data_ptr->msg_stream << "        " << __func__ << ":= " << stop_watch.toc(__func__)
+  debug_data_ptr->msg_stream << "      " << __func__ << ":= " << stop_watch_.toc(__func__)
                              << " [ms]\n";
   return area_with_objects;
 }

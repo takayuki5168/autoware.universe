@@ -120,11 +120,6 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
 
   // publisher to other nodes
   traj_pub_ = create_publisher<autoware_auto_planning_msgs::msg::Trajectory>("~/output/path", 1);
-  avoiding_traj_pub_ = create_publisher<autoware_auto_planning_msgs::msg::Trajectory>(
-    "/planning/scenario_planning/lane_driving/obstacle_avoidance_candidate_trajectory",
-    durable_qos);
-  is_avoidance_possible_pub_ = create_publisher<tier4_planning_msgs::msg::IsAvoidancePossible>(
-    "/planning/scenario_planning/lane_driving/obstacle_avoidance_ready", durable_qos);
 
   // debug publisher
   debug_eb_traj_pub_ = create_publisher<autoware_auto_planning_msgs::msg::Trajectory>(
@@ -175,6 +170,7 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
   }
 
   {  // option parameter
+    is_publishing_debug_visualization_marker_ = declare_parameter<bool>("option.is_publishing_debug_visualization_marker");
     is_publishing_clearance_map_ = declare_parameter<bool>("option.is_publishing_clearance_map");
     is_publishing_object_clearance_map_ =
       declare_parameter<bool>("option.is_publishing_object_clearance_map");
@@ -184,8 +180,6 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     is_showing_debug_info_ = declare_parameter<bool>("option.is_showing_debug_info");
     is_showing_calculation_time_ = declare_parameter<bool>("option.is_showing_calculation_time");
 
-    is_stopping_if_outside_drivable_area_ =
-      declare_parameter<bool>("option.is_stopping_if_outside_drivable_area");
     is_using_vehicle_config_ = declare_parameter<bool>("option.is_using_vehicle_config");
     enable_avoidance_ = declare_parameter<bool>("option.enable_avoidance");
     enable_pre_smoothing_ = declare_parameter<bool>("option.enable_pre_smoothing");
@@ -251,8 +245,6 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     // common
     eb_param_ptr_->num_joint_buffer_points =
       declare_parameter<int>("eb.common.num_joint_buffer_points");
-    eb_param_ptr_->num_joint_buffer_points_for_extending =
-      declare_parameter<int>("eb.common.num_joint_buffer_points_for_extending");
     eb_param_ptr_->num_offset_for_begin_idx =
       declare_parameter<int>("eb.common.num_offset_for_begin_idx");
     eb_param_ptr_->delta_arc_length_for_optimization =
@@ -267,14 +259,6 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
       declare_parameter<double>("eb.clearance.range_for_extend_joint");
     eb_param_ptr_->clearance_for_only_smoothing =
       declare_parameter<double>("eb.clearance.clearance_for_only_smoothing");
-    eb_param_ptr_->clearance_from_object_for_straight =
-      declare_parameter<double>("eb.clearance.clearance_from_object_for_straight");
-    eb_param_ptr_->soft_clearance_from_road =
-      declare_parameter<double>("eb.clearance.clearance_from_road");
-    eb_param_ptr_->clearance_from_object =
-      declare_parameter<double>("eb.clearance.clearance_from_object");
-    eb_param_ptr_->min_object_clearance_for_joint =
-      declare_parameter<double>("eb.clearance.min_object_clearance_for_joint");
 
     // constrain
     eb_param_ptr_->max_x_constrain_search_range =
@@ -292,19 +276,9 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     eb_param_ptr_->qp_param.max_iteration = declare_parameter<int>("eb.qp.max_iteration");
     eb_param_ptr_->qp_param.eps_abs = declare_parameter<double>("eb.qp.eps_abs");
     eb_param_ptr_->qp_param.eps_rel = declare_parameter<double>("eb.qp.eps_rel");
-    eb_param_ptr_->qp_param.eps_abs_for_extending =
-      declare_parameter<double>("eb.qp.eps_abs_for_extending");
-    eb_param_ptr_->qp_param.eps_rel_for_extending =
-      declare_parameter<double>("eb.qp.eps_rel_for_extending");
-    eb_param_ptr_->qp_param.eps_abs_for_visualizing =
-      declare_parameter<double>("eb.qp.eps_abs_for_visualizing");
-    eb_param_ptr_->qp_param.eps_rel_for_visualizing =
-      declare_parameter<double>("eb.qp.eps_rel_for_visualizing");
 
     // other
     eb_param_ptr_->clearance_for_fixing = 0.0;
-    eb_param_ptr_->min_object_clearance_for_deceleration =
-      eb_param_ptr_->clearance_from_object + eb_param_ptr_->keep_space_shape_y * 0.5;
   }
 
   {  // mpt param
@@ -445,6 +419,8 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
 
   {  // option parameter
     updateParam<bool>(
+      parameters, "option.is_publishing_debug_visualization_marker", is_publishing_debug_visualization_marker_);
+    updateParam<bool>(
       parameters, "option.is_publishing_clearance_map", is_publishing_clearance_map_);
     updateParam<bool>(
       parameters, "option.is_publishing_object_clearance_map", is_publishing_object_clearance_map_);
@@ -455,9 +431,6 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<bool>(
       parameters, "option.is_showing_calculation_time", is_showing_calculation_time_);
 
-    updateParam<bool>(
-      parameters, "option.is_stopping_if_outside_drivable_area",
-      is_stopping_if_outside_drivable_area_);
     updateParam<bool>(parameters, "option.is_using_vehicle_config", is_using_vehicle_config_);
 
     updateParam<bool>(parameters, "option.enable_avoidance", enable_avoidance_);
@@ -531,9 +504,6 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<int>(
       parameters, "eb.common.num_joint_buffer_points", eb_param_ptr_->num_joint_buffer_points);
     updateParam<int>(
-      parameters, "eb.common.num_joint_buffer_points_for_extending",
-      eb_param_ptr_->num_joint_buffer_points_for_extending);
-    updateParam<int>(
       parameters, "eb.common.num_offset_for_begin_idx", eb_param_ptr_->num_offset_for_begin_idx);
     updateParam<double>(
       parameters, "eb.common.delta_arc_length_for_optimization",
@@ -550,16 +520,6 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "eb.clearance.clearance_for_only_smoothing",
       eb_param_ptr_->clearance_for_only_smoothing);
-    updateParam<double>(
-      parameters, "eb.clearance.clearance_from_object_for_straight",
-      eb_param_ptr_->clearance_from_object_for_straight);
-    updateParam<double>(
-      parameters, "eb.clearance.clearance_from_road", eb_param_ptr_->soft_clearance_from_road);
-    updateParam<double>(
-      parameters, "eb.clearance.clearance_from_object", eb_param_ptr_->clearance_from_object);
-    updateParam<double>(
-      parameters, "eb.clearance.min_object_clearance_for_joint",
-      eb_param_ptr_->min_object_clearance_for_joint);
   
     // constrain
     updateParam(
@@ -581,19 +541,9 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<int>(parameters, "eb.qp.max_iteration", eb_param_ptr_->qp_param.max_iteration);
     updateParam<double>(parameters, "eb.qp.eps_abs", eb_param_ptr_->qp_param.eps_abs);
     updateParam<double>(parameters, "eb.qp.eps_rel", eb_param_ptr_->qp_param.eps_rel);
-    updateParam<double>(
-      parameters, "eb.qp.eps_abs_for_extending", eb_param_ptr_->qp_param.eps_abs_for_extending);
-    updateParam<double>(
-      parameters, "eb.qp.eps_rel_for_extending", eb_param_ptr_->qp_param.eps_rel_for_extending);
-    updateParam<double>(
-      parameters, "eb.qp.eps_abs_for_visualizing", eb_param_ptr_->qp_param.eps_abs_for_visualizing);
-    updateParam<double>(
-      parameters, "eb.qp.eps_rel_for_visualizing", eb_param_ptr_->qp_param.eps_rel_for_visualizing);
   
     // other
     // eb_param_ptr_->clearance_for_fixing = 0.0;
-    // eb_param_ptr_->min_object_clearance_for_deceleration
-    //   = eb_param_ptr_->clearance_from_object + eb_param_ptr_->keep_space_shape_y * 0.5;
   }
   
   {  // mpt param
@@ -936,7 +886,7 @@ Trajectories ObstacleAvoidancePlanner::optimizeTrajectory(
   const auto eb_traj =
     [&]() -> boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>> {
       if (enable_pre_smoothing_) {
-        return eb_path_optimizer_ptr_->getEBTrajectory(enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
+        return eb_path_optimizer_ptr_->getEBTrajectory(current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
       }
       return points_utils::convertToTrajectoryPoints(path.points);
     }();
@@ -1055,7 +1005,7 @@ ObstacleAvoidancePlanner::getExtendedOptimizedTrajectory(
   stop_watch_.tic(__func__);
   if (static_cast<int>(optimized_points.size()) <= traj_param_ptr_->num_fix_points_for_extending) {
     RCLCPP_INFO_THROTTLE(
-      rclcpp::get_logger("EBPathOptimizer"), logger_ros_clock_,
+      get_logger(), logger_ros_clock_,
       std::chrono::milliseconds(10000).count(), "[Avoidance] Not extend trajectory");
     return std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>{};
   }
@@ -1221,11 +1171,6 @@ void ObstacleAvoidancePlanner::publishDebugData(
   stop_watch_.tic(__func__);
 
   {  // publish trajectories
-    auto traj =
-      tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->foa_data.avoiding_traj_points);
-    traj.header = path.header;
-    avoiding_traj_pub_->publish(traj);
-
     auto debug_eb_traj = tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->eb_traj);
     debug_eb_traj.header = path.header;
     debug_eb_traj_pub_->publish(debug_eb_traj);
@@ -1253,39 +1198,26 @@ void ObstacleAvoidancePlanner::publishDebugData(
     auto debug_mpt_traj = tier4_autoware_utils::convertToTrajectory(debug_data_ptr_->mpt_traj);
     debug_mpt_traj.header = path.header;
     debug_mpt_traj_pub_->publish(debug_mpt_traj);
-
-    tier4_planning_msgs::msg::IsAvoidancePossible is_avoidance_possible;
-    is_avoidance_possible.is_avoidance_possible = debug_data_ptr_->foa_data.is_avoidance_possible;
-    is_avoidance_possible_pub_->publish(is_avoidance_possible);
   }
 
   {  // publish markers
-    /*
-    std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> traj_points_debug = traj_points;
-    // Add z information for virtual wall
-    if (!traj_points_debug.empty()) {
-      const auto opt_idx = tier4_autoware_utils::findNearestIndex(
-        path.points, traj_points.back().pose, std::numeric_limits<double>::max(),
-        traj_param_ptr_->delta_yaw_threshold_for_closest_point);
-      const int idx = opt_idx ? *opt_idx : 0;
-      traj_points_debug.back().pose.position.z = path.points.at(idx).pose.position.z + 1.0;
+    if (is_publishing_debug_visualization_marker_) {
+      stop_watch_.tic("getDebugVisualizationMarker");
+      const auto & debug_marker = debug_visualization::getDebugVisualizationMarker(
+                                                                                   debug_data_ptr_, traj_points, vehicle_param, false);
+      debug_data_ptr_->msg_stream << "      getDebugVisualizationMarker:= "
+                                  << stop_watch_.toc("getDebugVisualizationMarker") << " [ms]\n";
+
+      stop_watch_.tic("publishDebugVisualizationMarker");
+      debug_markers_pub_->publish(debug_marker);
+      debug_data_ptr_->msg_stream << "      publishDebugVisualizationMarker:= "
+                                  << stop_watch_.toc("publishDebugVisualizationMarker") << " [ms]\n";
     }
-    */
-
-    stop_watch_.tic("getDebugVisualizationMarker");
-    const auto & debug_marker = debug_visualization::getDebugVisualizationMarker(
-      debug_data_ptr_, traj_points, vehicle_param, false);
-    debug_data_ptr_->msg_stream << "      getDebugVisualizationMarker:= "
-                                << stop_watch_.toc("getDebugVisualizationMarker") << " [ms]\n";
-
-    stop_watch_.tic("publishDebugVisualizationMarker");
-    debug_markers_pub_->publish(debug_marker);
-    debug_data_ptr_->msg_stream << "      publishDebugVisualizationMarker:= "
-                                << stop_watch_.toc("publishDebugVisualizationMarker") << " [ms]\n";
   }
 
   {  // publish clearance map
     stop_watch_.tic("publishClearanceMap");
+
     if (is_publishing_area_with_objects_) {  // false
       debug_area_with_objects_pub_->publish(debug_visualization::getDebugCostmap(
         debug_data_ptr_->area_with_objects_map, path.drivable_area));

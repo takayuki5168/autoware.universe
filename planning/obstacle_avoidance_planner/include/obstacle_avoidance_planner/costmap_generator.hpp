@@ -39,6 +39,10 @@ public:
     const TrajectoryParam & traj_param, std::shared_ptr<DebugData> debug_data_ptr);
 
 private:
+  mutable tier4_autoware_utils::StopWatch<
+    std::chrono::milliseconds, std::chrono::microseconds, std::chrono::steady_clock>
+    stop_watch_;
+
   cv::Mat getAreaWithObjects(
     const cv::Mat & drivable_area, const cv::Mat & objects_image,
     std::shared_ptr<DebugData> debug_data_ptr) const;
