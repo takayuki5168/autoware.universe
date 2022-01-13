@@ -100,6 +100,7 @@ private:
   bool is_using_vehicle_config_;
   bool is_stopping_if_outside_drivable_area_;
   bool enable_avoidance_;
+  bool enable_pre_smoothing_;
   bool reset_prev_info_;
   bool use_footprint_for_drivability_;
 
