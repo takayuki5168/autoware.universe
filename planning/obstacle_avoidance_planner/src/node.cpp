@@ -441,25 +441,22 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
   using tier4_autoware_utils::updateParam;
 
   {  // option parameter
-    /*
     updateParam<bool>(
       parameters, "option.is_publishing_clearance_map", is_publishing_clearance_map_);
     updateParam<bool>(
       parameters, "option.is_publishing_object_clearance_map", is_publishing_object_clearance_map_);
     updateParam<bool>(
       parameters, "option.is_publishing_area_with_objects", is_publishing_area_with_objects_);
-    */
 
     updateParam<bool>(parameters, "option.is_showing_debug_info", is_showing_debug_info_);
     updateParam<bool>(
       parameters, "option.is_showing_calculation_time", is_showing_calculation_time_);
 
-    /*
     updateParam<bool>(
       parameters, "option.is_stopping_if_outside_drivable_area",
       is_stopping_if_outside_drivable_area_);
     updateParam<bool>(parameters, "option.is_using_vehicle_config", is_using_vehicle_config_);
-    */
+
     updateParam<bool>(parameters, "option.enable_avoidance", enable_avoidance_);
     updateParam<int>(parameters, "option.visualize_sampling_num", visualize_sampling_num_);
   }
@@ -477,7 +474,6 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "common.delta_arc_length_for_trajectory",
       traj_param_ptr_->delta_arc_length_for_trajectory);
 
-    /*
     updateParam<double>(
       parameters, "common.delta_dist_threshold_for_closest_point",
       traj_param_ptr_->delta_dist_threshold_for_closest_point);
@@ -487,16 +483,13 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "common.delta_yaw_threshold_for_straight",
       traj_param_ptr_->delta_yaw_threshold_for_straight);
-
     updateParam<int>(
       parameters, "common.num_fix_points_for_extending",
       traj_param_ptr_->num_fix_points_for_extending);
     updateParam<double>(
       parameters, "common.max_dist_for_extending_end_point",
       traj_param_ptr_->max_dist_for_extending_end_point);
-    */
 
-    /*
     // object
     updateParam<double>(
       parameters, "object.max_avoiding_ego_velocity_ms",
@@ -522,16 +515,14 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       traj_param_ptr_->is_avoiding_pedestrian);
     updateParam<bool>(
       parameters, "object.avoiding_object_type.animal", traj_param_ptr_->is_avoiding_animal);
-    */
   }
 
-  /*
   {  // elastic band parameter
     // optionn
     updateParam<bool>(
       parameters, "eb.option.is_getting_constraints_close2path_points",
       eb_param_ptr_->is_getting_constraints_close2path_points);
-
+  
     // common
     updateParam<int>(
       parameters, "eb.common.num_joint_buffer_points", eb_param_ptr_->num_joint_buffer_points);
@@ -543,7 +534,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "eb.common.delta_arc_length_for_optimization",
       eb_param_ptr_->delta_arc_length_for_optimization);
-
+  
     // clearance
     updateParam<double>(
       parameters, "eb.clearance.clearance_for_straight_line",
@@ -565,7 +556,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "eb.clearance.min_object_clearance_for_joint",
       eb_param_ptr_->min_object_clearance_for_joint);
-
+  
     // constrain
     updateParam(
       parameters, "eb.constrain.max_x_constrain_search_range",
@@ -581,7 +572,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam(
       parameters, "eb.constrain.max_lon_space_for_driveable_constraint",
       eb_param_ptr_->max_lon_space_for_driveable_constraint);
-
+  
     // qp
     updateParam<int>(parameters, "eb.qp.max_iteration", eb_param_ptr_->qp_param.max_iteration);
     updateParam<double>(parameters, "eb.qp.eps_abs", eb_param_ptr_->qp_param.eps_abs);
@@ -594,14 +585,13 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "eb.qp.eps_abs_for_visualizing", eb_param_ptr_->qp_param.eps_abs_for_visualizing);
     updateParam<double>(
       parameters, "eb.qp.eps_rel_for_visualizing", eb_param_ptr_->qp_param.eps_rel_for_visualizing);
-
+  
     // other
     // eb_param_ptr_->clearance_for_fixing = 0.0;
     // eb_param_ptr_->min_object_clearance_for_deceleration
     //   = eb_param_ptr_->clearance_from_object + eb_param_ptr_->keep_space_shape_y * 0.5;
   }
-  */
-
+  
   {  // mpt param
     // option
     updateParam<bool>(parameters, "mpt.option.l_inf_norm", mpt_param_ptr_->l_inf_norm);
@@ -616,12 +606,12 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<bool>(
       parameters, "mpt.option.steer_limit_constraint",
       mpt_param_ptr_->steer_limit_constraint);
-
+  
     // common
     updateParam<int>(
       parameters, "mpt.common.num_curvature_sampling_points",
       mpt_param_ptr_->num_curvature_sampling_points);
-
+  
     updateParam<double>(
       parameters, "mpt.common.delta_arc_length_for_mpt_points",
       mpt_param_ptr_->delta_arc_length_for_mpt_points);
@@ -632,7 +622,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "mpt.common.forward_fixing_mpt_time", mpt_param_ptr_->forward_fixing_mpt_time);
 
     // kinematics
-    double max_steer_deg;
+    double max_steer_deg = mpt_param_ptr_->max_steer_rad * 180.0 / M_PI;
     updateParam<double>(parameters, "mpt.kinematics.max_steer_deg", max_steer_deg);
     mpt_param_ptr_->max_steer_rad = max_steer_deg * M_PI / 180.0;
     updateParam<double>(parameters, "mpt.kinematics.steer_tau", mpt_param_ptr_->steer_tau);
@@ -646,7 +636,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<double>(
       parameters, "mpt.kinematics.avoiding_circle_radius", mpt_param_ptr_->avoiding_circle_radius);
 
-    // clearance
+      // clearance
     updateParam<double>(
       parameters, "mpt.clearance.hard_clearance_from_road",
       mpt_param_ptr_->hard_clearance_from_road);
@@ -661,14 +651,14 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       mpt_param_ptr_->extra_desired_clearance_from_road);
     updateParam<double>(
       parameters, "mpt.clearance.clearance_from_object", mpt_param_ptr_->clearance_from_object);
-
+  
     // weight
     updateParam<double>(
       parameters, "mpt.weight.soft_avoidance_weight", mpt_param_ptr_->soft_avoidance_weight);
     updateParam<double>(
       parameters, "mpt.weight.soft_second_avoidance_weight",
       mpt_param_ptr_->soft_second_avoidance_weight);
-
+  
     updateParam<double>(
       parameters, "mpt.weight.lat_error_weight", mpt_param_ptr_->lat_error_weight);
     updateParam<double>(
@@ -681,7 +671,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       parameters, "mpt.weight.steer_rate_weight", mpt_param_ptr_->steer_rate_weight);
     updateParam<double>(
       parameters, "mpt.weight.steer_acc_weight", mpt_param_ptr_->steer_acc_weight);
-
+  
     updateParam<double>(
       parameters, "mpt.weight.obstacle_avoid_lat_error_weight",
       mpt_param_ptr_->obstacle_avoid_lat_error_weight);
@@ -693,7 +683,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       mpt_param_ptr_->obstacle_avoid_steer_input_weight);
     updateParam<double>(
       parameters, "mpt.weight.near_objects_length", mpt_param_ptr_->near_objects_length);
-
+  
     updateParam<double>(
       parameters, "mpt.weight.terminal_lat_error_weight",
       mpt_param_ptr_->terminal_lat_error_weight);
@@ -713,7 +703,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       0) { constexpr size_t avoiding_circle_num  4; mpt_param_ptr_->avoiding_circle_radius
       std::hypot( vehicle_param_ptr_->length / static_cast<double>(avoiding_circle_num) / 2.0,
       vehicle_param_ptr_->width / 2.0);
-
+  
       mpt_param_ptr_->avoiding_circle_offsets.clear();
       for (size_t i  0; i < avoiding_circle_num; ++i) {
       mpt_param_ptr_->avoiding_circle_offsets.push_back(
@@ -723,7 +713,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
       }
     */
   }
-
+  
   {  // replan
     updateParam<bool>(parameters, "replan.reset_prev_info", reset_prev_info_);
     updateParam<bool>(

@@ -751,7 +751,9 @@ boost::optional<Eigen::VectorXd> MPTOptimizer::executeOptimization(
   prev_mat_m = A.rows();
 
   // osqp_solver_ptr_ = std::make_unique<autoware::common::osqp::OSQPInterface>(
-  //  obj_m.hessian, const_m.linear, obj_m.gradient, const_m.lower_bound, const_m.upper_bound,
+  //     P_csc, A_csc, f, lower_bound, upper_bound, 1.0e-3);
+  // osqp_solver_ptr_ = std::make_unique<autoware::common::osqp::OSQPInterface>(
+  //   obj_m.hessian, const_m.linear, obj_m.gradient, const_m.lower_bound, const_m.upper_bound,
   //   1.0e-3);
   // osqp_solver_ptr_->updateEpsRel(1.0e-3);
 
