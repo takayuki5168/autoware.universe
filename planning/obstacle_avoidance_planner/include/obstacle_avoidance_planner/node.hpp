@@ -38,7 +38,6 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "tier4_debug_msgs/msg/string_stamped.hpp"
 #include "tier4_planning_msgs/msg/enable_avoidance.hpp"
-#include "tier4_planning_msgs/msg/is_avoidance_possible.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
 #include "boost/optional.hpp"
@@ -92,13 +91,13 @@ class ObstacleAvoidancePlanner : public rclcpp::Node
 private:
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
 
+  bool is_publishing_debug_visualization_marker_;
   bool is_publishing_area_with_objects_;
   bool is_publishing_object_clearance_map_;
   bool is_publishing_clearance_map_;
   bool is_showing_debug_info_;
   bool is_showing_calculation_time_;
   bool is_using_vehicle_config_;
-  bool is_stopping_if_outside_drivable_area_;
   bool enable_avoidance_;
   bool enable_pre_smoothing_;
   bool reset_prev_info_;
@@ -140,7 +139,6 @@ private:
 
   // ROS
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr traj_pub_;
-  rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr avoiding_traj_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr
     debug_extended_fixed_traj_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr
@@ -152,8 +150,6 @@ private:
     debug_mpt_ref_traj_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr debug_mpt_traj_pub_;
 
-  rclcpp::Publisher<tier4_planning_msgs::msg::IsAvoidancePossible>::SharedPtr
-    is_avoidance_possible_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_markers_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_clearance_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr debug_object_clearance_map_pub_;

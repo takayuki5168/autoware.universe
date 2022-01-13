@@ -61,10 +61,6 @@ struct QPParam
   int max_iteration;
   double eps_abs;
   double eps_rel;
-  double eps_abs_for_extending;
-  double eps_rel_for_extending;
-  double eps_abs_for_visualizing;
-  double eps_rel_for_visualizing;
 };
 
 struct EBParam
@@ -75,11 +71,6 @@ struct EBParam
   double clearance_for_joint;
   double range_for_extend_joint;
   double clearance_for_only_smoothing;
-  double clearance_from_object_for_straight;
-  double min_object_clearance_for_joint;
-  double min_object_clearance_for_deceleration;
-  double soft_clearance_from_road;
-  double clearance_from_object;
   double max_x_constrain_search_range;
   double coef_x_constrain_search_resolution;
   double coef_y_constrain_search_resolution;
@@ -114,13 +105,6 @@ struct ConstrainRectangle
   double velocity;
   bool is_empty_driveable_area = false;
   bool is_including_only_smooth_range = true;
-};
-
-struct FOAData
-{
-  bool is_avoidance_possible = true;
-  std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint> avoiding_traj_points;
-  std::vector<ConstrainRectangle> constrain_rectangles;
 };
 
 struct DebugData
@@ -168,7 +152,6 @@ struct DebugData
   cv::Mat clearance_map;
   cv::Mat only_object_clearance_map;
   cv::Mat area_with_objects_map;
-  FOAData foa_data;
 
   size_t visualize_sampling_num = 10;
   // SequentialBoundsCandidates sequential_bounds_candidates;
