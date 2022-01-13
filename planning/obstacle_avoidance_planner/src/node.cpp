@@ -188,6 +188,7 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
       declare_parameter<bool>("option.is_stopping_if_outside_drivable_area");
     is_using_vehicle_config_ = declare_parameter<bool>("option.is_using_vehicle_config");
     enable_avoidance_ = declare_parameter<bool>("option.enable_avoidance");
+    enable_pre_smoothing_ = declare_parameter<bool>("option.enable_pre_smoothing");
     visualize_sampling_num_ = declare_parameter<int>("option.visualize_sampling_num");
   }
 
@@ -458,6 +459,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
     updateParam<bool>(parameters, "option.is_using_vehicle_config", is_using_vehicle_config_);
 
     updateParam<bool>(parameters, "option.enable_avoidance", enable_avoidance_);
+    updateParam<bool>(parameters, "option.enable_pre_smoothing", enable_pre_smoothing_);
     updateParam<int>(parameters, "option.visualize_sampling_num", visualize_sampling_num_);
   }
 
@@ -869,7 +871,7 @@ ObstacleAvoidancePlanner::generateOptimizedTrajectory(
     enable_avoidance_, path, /*avoiding_objects*/ in_objects_ptr_->objects, *traj_param_ptr_,
     debug_data_ptr_);
 
-  // calculate trajectory with EB and MPT, then extend trajectory
+  // calculate trajectory with EB and MPT
   auto optimal_trajs = optimizeTrajectory(path, cv_maps);
 
   // insert 0 velocity when trajectory is over drivable area
@@ -925,9 +927,14 @@ Trajectories ObstacleAvoidancePlanner::optimizeTrajectory(
 {
   stop_watch_.tic(__func__);
 
-  // EB: smooth trajectory
-  const auto eb_traj = eb_path_optimizer_ptr_->getEBTrajectory(
-    enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
+  // EB: smooth trajectory if enable_pre_smoothing is true
+  const auto eb_traj =
+    [&]() -> boost::optional<std::vector<autoware_auto_planning_msgs::msg::TrajectoryPoint>> {
+      if (enable_pre_smoothing_) {
+        return eb_path_optimizer_ptr_->getEBTrajectory(enable_avoidance_, current_ego_pose_, path, prev_optimal_trajs_ptr_, cv_maps, debug_data_ptr_);
+      }
+      return points_utils::convertToTrajectoryPoints(path.points);
+    }();
   if (!eb_traj) {
     return getPrevTrajs(path.points);
   }
