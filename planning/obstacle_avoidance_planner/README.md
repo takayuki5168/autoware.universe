@@ -192,9 +192,7 @@ When the optimization failed or the optimized trajectory is not collision free, 
 
 Trajectory near the ego must be stable, therefore the condition where trajectory points near the ego are the same as previously generated trajectory is considered, and this is the only hard constraints in MPT.
 
-#### Formulation
-
-##### Vehicle kinematics
+#### Vehicle kinematics
 
 As the following figure, we consider the bicycle kinematics model in the frenet frame to track the reference path.
 At time step $k$, we define lateral distance to the reference path, heading angle against the reference path, and steer angle as $y_k$, $\theta_k$, and $\delta_k$ respectively.
@@ -426,7 +424,7 @@ $$
 \end{align}
 $$
 
-##### Objective function
+#### Objective function
 
 The objective function for smoothing and tracking is shown as follows, which can be formulated with value function matrices $Q, R$.
 
@@ -497,11 +495,146 @@ $$
 \end{align}
 $$
 
+#### Constraints
+
+##### Steer angle limitaion
+Steer angle has a certain limitation ($\delta_{max}$, $\delta_{min}$).
+Therefore we add linear inequality equations.
+
+$$
+\begin{align}
+\delta_{min} \leq \delta_i \leq \delta_{max}
+\end{align}
+$$
+
+##### Collision free
+
+To realize collision-free path planning, we have to formulate constraints that the vehicle is inside the road (moreover, a certain meter far from the road boundary) and does not collide with obstacles in linear equations.
+For linearity, we chose a method to approximate the vehicle shape with a set of circles, that is reliable and easy to implement.
+
+Now we formulate the linear constraints where a set of circles on each trajectory point is collision-free.
+For collision checking, we have a drivable area in the format of an image where walls or obstacles are filled with a color.
+By using this drivable area, we calculate upper (left) and lower (right) boundaries along reference points so that we can interpolate boundaries on any position on the trajectory.
+
+Assuming that upper and lower boundaries are $b_l$, $b_u$ respectively, and $r$ is a radius of a circle, lateral deviation of the circle center $y'$ has to be
+$$
+b_l + r \leq y' \leq b_u - r.
+$$
+
+Based on the following figure, $y'$ can be formulated as follows.
+$$
+\begin{align}
+y' & = L \sin(\theta + \beta) + y \cos \beta - l \sin(\gamma - \phi_a) \\
+& = L \sin \theta \cos \beta + L \cos \theta \sin \beta + y \cos \beta - l \sin(\gamma - \phi_a) \\
+& \approx L \theta \cos \beta + L \sin \beta + y \cos \beta - l \sin(\gamma - \phi_a)
+\end{align}
+$$
+
+$$
+b_l + r - \lambda \leq y' \leq b_u - r + \lambda.
+$$
+
+$$
+\begin{align}
+y' & = C_1 \boldsymbol{x} + C_2 \\
+& = C_1 (B \boldsymbol{v} + \boldsymbol{w}) + C_2 \\
+& = C_1 B \boldsymbol{v} + \boldsymbol{w} + C_2
+\end{align}
+$$
+
+Note that longitudinal position of the circle center and the trajectory point to calculate boundaries are different.
+But each boundaries are vertical against the trajectory, resulting in less distortion by the longitudinal position difference since road boundaries does not change so much.
+For example, if the boundaries are not vertical against the trajectory and there is a certain difference of longitudinal position between the circe center and the trajectory point, we can easily guess that there is much more distortion when comparing lateral deviation and boundaries.
+
+$$
+\begin{align}
+    A_{blk} & =
+    \begin{pmatrix}
+        C_1 B & O & \dots & O & I_{N_{ref} \times N_{ref}} & O \dots & O\\
+        -C_1 B & O & \dots & O & I & O \dots & O\\
+        O & O & \dots & O & I & O \dots & O
+    \end{pmatrix}
+    \in \boldsymbol{R}^{3 N_{ref} \times D_v + N_{circle} N_{ref}} \\
+    \boldsymbol{b}_{lower, blk} & =
+    \begin{pmatrix}
+        \boldsymbol{b}_{lower} - C_1 \boldsymbol{w} - C_2 \\
+        -\boldsymbol{b}_{upper} + C_1 \boldsymbol{w} + C_2 \\
+        O
+    \end{pmatrix}
+    \in \boldsymbol{R}^{3 N_{ref}} \\
+    \boldsymbol{b}_{uppwer, blk} & = \boldsymbol{\infty}
+    \in \boldsymbol{R}^{3 N_{ref}}
+\end{align}
+$$
+
+We will explain options for optimization.
+
+###### L-infinity optimization
+
+The above formulation is called L2 norm for slack variables.
+Instead, if we use L-infinity norm where slack variables are shared by enabling `l_inf_norm`.
+
+$$
+\begin{align}
+    A_{blk} =
+    \begin{pmatrix}
+        C_1 B & I_{N_{ref} \times N_{ref}} \\
+        -C_1 B & I \\
+        O & I
+    \end{pmatrix}
+\in \boldsymbol{R}^{3N_{ref} \times D_v + N_{ref}}
+\end{align}
+$$
+
+###### Two-step soft constraints
+
+$$
+\begin{align}
+\boldsymbol{v}' =
+  \begin{pmatrix}
+    \boldsymbol{v} \\
+    \boldsymbol{\lambda}^{soft_1} \\
+    \boldsymbol{\lambda}^{soft_2} \\
+  \end{pmatrix}
+  \in \boldsymbol{R}^{D_v + 2N_{slack}}
+\end{align}
+$$
+
+$*$ depends on whether to use L2 norm or L-infinity optimization.
+
+$$
+\begin{align}
+    A_{blk} & =
+    \begin{pmatrix}
+        A^{soft_1}_{blk} \\
+        A^{soft_2}_{blk} \\
+    \end{pmatrix}\\
+    & =
+    \begin{pmatrix}
+        C_1^{soft_1} B & & \\
+        -C_1^{soft_1} B & \Huge{*} & \Huge{O} \\
+        O & & \\
+        C_1^{soft_2} B & & \\
+        -C_1^{soft_2} B & \Huge{O} & \Huge{*} \\
+        O & & 
+    \end{pmatrix}
+    \in \boldsymbol{R}^{6 N_{ref} \times D_v + 2 N_{slack}}
+\end{align}
+$$
+
+$N_{slack}$ is $N_{circle}$ when L2 optimization, or $1$ when L-infinity optimization.
+$N_{circle}$ is the number of circles to check collision.
+
 ## Limitation
 
 - When turning right or left in the intersection, the output trajectory is close to the outside road boundary.
 - Roles of planning for behavior_path_planner and obstacle_avoidance_planner are not decided clearly.
 - High computation cost
+
+## How to make planning faster
+
+- set `is_publishing_*` false, which will not publish clearance maps or visualization markers for debugging.
+- set `enable_pre_smoothing` false which will disable EB for smoothing before MPT.
 
 ## Comparison to other methods
 
