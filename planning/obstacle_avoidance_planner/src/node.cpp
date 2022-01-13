@@ -183,6 +183,7 @@ ObstacleAvoidancePlanner::ObstacleAvoidancePlanner(const rclcpp::NodeOptions & n
     is_using_vehicle_config_ = declare_parameter<bool>("option.is_using_vehicle_config");
     enable_avoidance_ = declare_parameter<bool>("option.enable_avoidance");
     enable_pre_smoothing_ = declare_parameter<bool>("option.enable_pre_smoothing");
+    skip_optimization_ = declare_parameter<bool>("option.skip_optimization");
     visualize_sampling_num_ = declare_parameter<int>("option.visualize_sampling_num");
   }
 
@@ -435,6 +436,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleAvoidancePlanner::paramCallback
 
     updateParam<bool>(parameters, "option.enable_avoidance", enable_avoidance_);
     updateParam<bool>(parameters, "option.enable_pre_smoothing", enable_pre_smoothing_);
+    updateParam<bool>(parameters, "option.skip_optimization_", skip_optimization_);
     updateParam<int>(parameters, "option.visualize_sampling_num", visualize_sampling_num_);
   }
 
@@ -881,6 +883,14 @@ Trajectories ObstacleAvoidancePlanner::optimizeTrajectory(
   const autoware_auto_planning_msgs::msg::Path & path, const CVMaps & cv_maps)
 {
   stop_watch_.tic(__func__);
+
+  if (skip_optimization_) {
+    const auto traj = points_utils::convertToTrajectoryPoints(path.points);
+    Trajectories trajs;
+    trajs.smoothed_trajectory = traj;
+    trajs.model_predictive_trajectory = traj;
+    return trajs;
+  }
 
   // EB: smooth trajectory if enable_pre_smoothing is true
   const auto eb_traj =
