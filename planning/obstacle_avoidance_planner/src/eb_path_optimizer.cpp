@@ -62,19 +62,37 @@ Eigen::MatrixXd EBPathOptimizer::makePMatrix()
 {
   Eigen::MatrixXd P =
     Eigen::MatrixXd::Zero(traj_param_.num_sampling_points * 2, traj_param_.num_sampling_points * 2);
-  for (int r = 0; r < traj_param_.num_sampling_points * 2; ++r) {
-    for (int c = 0; c < traj_param_.num_sampling_points * 2; ++c) {
-      if (r == c) {
-        P(r, c) = 6.0;
+  Eigen::MatrixXd Block =
+    Eigen::MatrixXd::Zero(traj_param_.num_sampling_points, traj_param_.num_sampling_points);
+  for (int r = 0; r < traj_param_.num_sampling_points; r++) {
+    for (int c = 0; c < traj_param_.num_sampling_points; c++) {
+      if (
+        (r == 0 && c == 0) ||
+        (r == traj_param_.num_sampling_points - 1 && c == traj_param_.num_sampling_points - 1)) {
+        Block(r, c) = 1;
+      } else if (
+        (r == 1 && c == 1) ||
+        (r == traj_param_.num_sampling_points - 2 && c == traj_param_.num_sampling_points - 2)) {
+        Block(r, c) = 3;
+      } else if (
+        (r == 1 && c == 0) || (r == 0 && c == 1) ||
+        (r == traj_param_.num_sampling_points - 1 && c == traj_param_.num_sampling_points - 2) ||
+        (r == traj_param_.num_sampling_points - 2 && c == traj_param_.num_sampling_points - 1)) {
+        Block(r, c) = -1;
+      } else if (r == c) {
+        Block(r, c) = 4;
       } else if (std::abs(c - r) == 1) {
-        P(r, c) = -4.0;
-      } else if (std::abs(c - r) == 2) {
-        P(r, c) = 1.0;
+        Block(r, c) = -2;
       } else {
-        P(r, c) = 0.0;
+        Block(r, c) = 0;
       }
     }
   }
+
+  P.block(0, 0, traj_param_.num_sampling_points, traj_param_.num_sampling_points) = Block;
+  P.block(
+    traj_param_.num_sampling_points, traj_param_.num_sampling_points,
+    traj_param_.num_sampling_points, traj_param_.num_sampling_points) = Block;
   return P;
 }
 
