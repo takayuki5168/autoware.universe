@@ -171,11 +171,47 @@ Therefore the output path may have a collision with road boundaries or obstacles
 We formulate a QP problem minimizing the distance between the previous point and the next point for each point.
 Conditions that each point can move to a certain extent are used so that the path will not changed a lot but will be smoother.
 
-For $k$'th point ($\boldsymbol{p}_k$), the objective function is as follows.
+For $k$'th point ($\boldsymbol{p}_k = (x_k, y_k)$), the objective function is as follows.
 The beginning and end point are fixed during the optimization.
 
 $$
-\min \sum_{k=1}^{n-1} |\boldsymbol{p}_{k+1} - \boldsymbol{p}_{k}| - |\boldsymbol{p}_{k} - \boldsymbol{p}_{k-1}|
+\begin{align}
+\ J & = min \sum_{k=1}^{n-1} ||\boldsymbol{p}_{k+1} - \boldsymbol{p}_{k}||^2 + ||\boldsymbol{p}_{k} - \boldsymbol{p}_{k-1}||^2 \\
+\ & =min \sum_{k=1}^{n-1} ||(x_{k} - x_{k+1}, y_k - y_{k+1})||^2 + || (x_{k-1} - x_k, y_{k-1} - y_k) ||^2 \\
+\ & = min (x_0, x_1, x_2,\dots,x_{n-2},x_{n-1}, x_n, y_0, y_1,y_2 \dots,y_{n-2} ,y_{n-1},y_n)
+    \begin{pmatrix}
+      1 & -1 & 0 & \dots& \\
+      -1 & 3 & -2 & 0 &\dots   \\
+      0 & -2 & 4 & -2&   \\
+      \vdots & 0 & \ddots&\ddots& \ddots   \\
+      & \vdots & &-2& 4 & -2 \\
+      & & & &-2& 3 & -1 \\
+      & & & & &-1&  1& \\
+      & & & & & & &1&-1& \\
+      & & & & & & &-1&3&-2\\
+      & & & & & & & &-2&4&-2 \\
+      & & & & & & & & &\ddots&\ddots&\ddots \\
+      & & & & & & & & & &-2& 4 & -2 \\
+      & & & & & & & & & & &-2& 3 & -1 \\
+      & & & & & & & & & & & &-1&  1 \\
+    \end{pmatrix}
+    \begin{pmatrix}
+        \ x_0 \\
+        \ x_1 \\
+        \ x_2 \\
+        \vdots \\
+        \ x_{n-2}\\
+        \ x_{n-1} \\
+        \ x_{n} \\
+        \ y_0 \\
+        \ y_1 \\
+        \ y_2 \\
+        \vdots \\
+        \ y_{n-2}\\
+        \ y_{n-1} \\
+        \ y_{n} \\
+    \end{pmatrix}
+\end{align}
 $$
 
 ### Model predictive trajectory
@@ -498,6 +534,7 @@ $$
 #### Constraints
 
 ##### Steer angle limitaion
+
 Steer angle has a certain limitation ($\delta_{max}$, $\delta_{min}$).
 Therefore we add linear inequality equations.
 
@@ -517,11 +554,13 @@ For collision checking, we have a drivable area in the format of an image where 
 By using this drivable area, we calculate upper (left) and lower (right) boundaries along reference points so that we can interpolate boundaries on any position on the trajectory.
 
 Assuming that upper and lower boundaries are $b_l$, $b_u$ respectively, and $r$ is a radius of a circle, lateral deviation of the circle center $y'$ has to be
+
 $$
 b_l + r \leq y' \leq b_u - r.
 $$
 
 Based on the following figure, $y'$ can be formulated as follows.
+
 $$
 \begin{align}
 y' & = L \sin(\theta + \beta) + y \cos \beta - l \sin(\gamma - \phi_a) \\
@@ -616,7 +655,7 @@ $$
         O & & \\
         C_1^{soft_2} B & & \\
         -C_1^{soft_2} B & \Huge{O} & \Huge{*} \\
-        O & & 
+        O & &
     \end{pmatrix}
     \in \boldsymbol{R}^{6 N_{ref} \times D_v + 2 N_{slack}}
 \end{align}
