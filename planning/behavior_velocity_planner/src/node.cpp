@@ -213,6 +213,7 @@ bool BehaviorVelocityPlannerNode::isDataReady(const PlannerData planner_data) co
 void BehaviorVelocityPlannerNode::onOccupancyGrid(
   const nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: occupancy grid callback");
   std::lock_guard<std::mutex> lock(mutex_);
   planner_data_.occupancy_grid = msg;
 }
@@ -220,6 +221,7 @@ void BehaviorVelocityPlannerNode::onOccupancyGrid(
 void BehaviorVelocityPlannerNode::onPredictedObjects(
   const autoware_auto_perception_msgs::msg::PredictedObjects::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: predicted objects grid callback");
   std::lock_guard<std::mutex> lock(mutex_);
   planner_data_.predicted_objects = msg;
 }
@@ -227,6 +229,7 @@ void BehaviorVelocityPlannerNode::onPredictedObjects(
 void BehaviorVelocityPlannerNode::onNoGroundPointCloud(
   const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: no ground point callback");
   geometry_msgs::msg::TransformStamped transform;
   try {
     transform = tf_buffer_.lookupTransform(
@@ -252,6 +255,7 @@ void BehaviorVelocityPlannerNode::onNoGroundPointCloud(
 void BehaviorVelocityPlannerNode::onVehicleVelocity(
   const nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: vehicle velocity callback");
   std::lock_guard<std::mutex> lock(mutex_);
 
   auto current_velocity = std::make_shared<geometry_msgs::msg::TwistStamped>();
@@ -281,6 +285,7 @@ void BehaviorVelocityPlannerNode::onVehicleVelocity(
 void BehaviorVelocityPlannerNode::onLaneletMap(
   const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: lanelet map callback");
   std::lock_guard<std::mutex> lock(mutex_);
 
   // Load map
@@ -315,6 +320,7 @@ void BehaviorVelocityPlannerNode::onLaneletMap(
 void BehaviorVelocityPlannerNode::onTrafficSignals(
   const autoware_auto_perception_msgs::msg::TrafficSignalArray::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: traffic signals callback");
   std::lock_guard<std::mutex> lock(mutex_);
 
   for (const auto & signal : msg->signals) {
@@ -328,6 +334,7 @@ void BehaviorVelocityPlannerNode::onTrafficSignals(
 void BehaviorVelocityPlannerNode::onExternalCrosswalkStates(
   const tier4_api_msgs::msg::CrosswalkStatus::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: external crosswalk callback");
   std::lock_guard<std::mutex> lock(mutex_);
   planner_data_.external_crosswalk_status_input = *msg;
 }
@@ -335,6 +342,7 @@ void BehaviorVelocityPlannerNode::onExternalCrosswalkStates(
 void BehaviorVelocityPlannerNode::onExternalIntersectionStates(
   const tier4_api_msgs::msg::IntersectionStatus::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: external intersection callback");
   std::lock_guard<std::mutex> lock(mutex_);
   planner_data_.external_intersection_status_input = *msg;
 }
@@ -342,6 +350,7 @@ void BehaviorVelocityPlannerNode::onExternalIntersectionStates(
 void BehaviorVelocityPlannerNode::onExternalTrafficSignals(
   const autoware_auto_perception_msgs::msg::TrafficSignalArray::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: external traffic signals callback");
   std::lock_guard<std::mutex> lock(mutex_);
   for (const auto & signal : msg->signals) {
     autoware_auto_perception_msgs::msg::TrafficSignalStamped traffic_signal;
@@ -354,6 +363,7 @@ void BehaviorVelocityPlannerNode::onExternalTrafficSignals(
 void BehaviorVelocityPlannerNode::onVirtualTrafficLightStates(
   const tier4_v2x_msgs::msg::VirtualTrafficLightStateArray::ConstSharedPtr msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: virtual traffic signals callback");
   std::lock_guard<std::mutex> lock(mutex_);
   planner_data_.virtual_traffic_light_states = msg;
 }
@@ -361,6 +371,8 @@ void BehaviorVelocityPlannerNode::onVirtualTrafficLightStates(
 void BehaviorVelocityPlannerNode::onTrigger(
   const autoware_auto_planning_msgs::msg::PathWithLaneId::ConstSharedPtr input_path_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: main callback");
+
   mutex_.lock();  // for planner_data_
   // Check ready
   try {
@@ -385,6 +397,12 @@ void BehaviorVelocityPlannerNode::onTrigger(
   const auto velocity_planned_path = planner_manager_.planPathVelocity(
     std::make_shared<const PlannerData>(planner_data), *input_path_msg);
 
+  for (int i = 0; i < 10000; ++i) {
+    for (int j = 0; j < 10000; ++j) {
+      std::sqrt(i) * std::sqrt(j);
+    }
+  }
+
   // screening
   const auto filtered_path = filterLitterPathPoint(to_path(velocity_planned_path));
 
@@ -405,6 +423,7 @@ void BehaviorVelocityPlannerNode::onTrigger(
   if (debug_viz_pub_->get_subscription_count() > 0) {
     publishDebugMarker(output_path_msg);
   }
+  RCLCPP_ERROR_STREAM(get_logger(), "end: main callback");
 }
 
 void BehaviorVelocityPlannerNode::publishDebugMarker(
