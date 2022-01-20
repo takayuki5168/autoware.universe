@@ -537,6 +537,7 @@ ObstacleStopPlannerNode::ObstacleStopPlannerNode(const rclcpp::NodeOptions & nod
 void ObstacleStopPlannerNode::obstaclePointcloudCallback(
   const sensor_msgs::msg::PointCloud2::ConstSharedPtr input_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: point callback");
   // mutex for obstacle_ros_pointcloud_ptr_
   // NOTE: *obstacle_ros_pointcloud_ptr_ is used
   std::lock_guard<std::mutex> lock(mutex_);
@@ -562,6 +563,7 @@ void ObstacleStopPlannerNode::obstaclePointcloudCallback(
 
 void ObstacleStopPlannerNode::pathCallback(const Trajectory::ConstSharedPtr input_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: main callback");
   mutex_.lock();
   // NOTE: these vairables must not be referenced for multithreading
   const auto vehicle_info = vehicle_info_;
@@ -595,6 +597,12 @@ void ObstacleStopPlannerNode::pathCallback(const Trajectory::ConstSharedPtr inpu
   PlannerData planner_data{};
 
   getSelfPose(input_msg->header, tf_buffer_, planner_data.current_pose);
+
+  for (int i = 0; i < 10000; ++i) {
+    for (int j = 0; j < 10000; ++j) {
+      std::sqrt(i) * std::sqrt(j);
+    }
+  }
 
   Trajectory output_trajectory = *input_msg;
   TrajectoryPoints output_trajectory_points =
@@ -630,6 +638,8 @@ void ObstacleStopPlannerNode::pathCallback(const Trajectory::ConstSharedPtr inpu
   trajectory.header = input_msg->header;
   path_pub_->publish(trajectory);
   publishDebugData(planner_data, current_acc);
+
+  RCLCPP_ERROR_STREAM(get_logger(), "end: main callback");
 }
 
 void ObstacleStopPlannerNode::searchObstacle(
@@ -860,6 +870,7 @@ bool ObstacleStopPlannerNode::withinPolygon(
 void ObstacleStopPlannerNode::externalExpandStopRangeCallback(
   const ExpandStopRange::ConstSharedPtr input_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: external expand stop range callback");
   // mutex for vehicle_info_, stop_param_
   std::lock_guard<std::mutex> lock(mutex_);
 
@@ -1105,12 +1116,14 @@ void ObstacleStopPlannerNode::insertSlowDownSection(
 void ObstacleStopPlannerNode::dynamicObjectCallback(
   const PredictedObjects::ConstSharedPtr input_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: dynamic object callback");
   object_ptr_ = input_msg;
 }
 
 void ObstacleStopPlannerNode::currentVelocityCallback(
   const nav_msgs::msg::Odometry::ConstSharedPtr input_msg)
 {
+  RCLCPP_ERROR_STREAM(get_logger(), "start: current velocity callback");
   // mutex for current_acc_, lpf_acc_
   std::lock_guard<std::mutex> lock(mutex_);
 
