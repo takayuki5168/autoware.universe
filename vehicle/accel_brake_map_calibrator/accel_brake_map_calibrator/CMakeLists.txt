@@ -19,6 +19,11 @@ ament_auto_add_executable(accel_brake_map_calibrator
 )
 ament_target_dependencies(accel_brake_map_calibrator)
 
+ament_auto_add_executable(fit
+  src/fit.cpp
+)
+ament_target_dependencies(accel_brake_map_calibrator)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()

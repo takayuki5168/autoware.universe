@@ -17,45 +17,46 @@
 #ifndef ACCEL_BRAKE_MAP_CALIBRATOR__BAYESIAN_LINEAR_REGRESSION_HPP_
 #define ACCEL_BRAKE_MAP_CALIBRATOR__BAYESIAN_LINEAR_REGRESSION_HPP_
 
+#include <memory>
 #include <vector>
 #include "eigen3/Eigen/Core"
+#include <Eigen/LU>
 
 struct SamplingInfo
 {
-  std::vector<int> grid_num_vec;
-  std::vector<double> min_val_vec;
+  std::vector<size_t> grid_num_vec;
   std::vector<double> max_val_vec;
+  std::vector<double> min_val_vec;
 };
 
 class KernelInterface
 {
 public:
   KernelInterface() {}
-  virtual Eigen::VectorXd calc(const Eigen::MatrixXd x);
+  virtual Eigen::MatrixXd calcKernelMatrix(const Eigen::MatrixXd & x) const = 0;
+  virtual size_t getDimFeature() const = 0;
 
 protected:
-  virtual Eigen::MatrixXd calcSingleKernelMatrix(const Eigen::MatrixXd x) const;
-  virtual Eigen::MatrixXd calcKernelMatrix(const Eigen::MatrixXd x) const;
+  virtual Eigen::VectorXd calcSingleKernelMatrix(const Eigen::VectorXd & x) const = 0;
 };
 
 class RBFKernel : public KernelInterface
 {
 public:
-  RBFKernel(const SamplingInfo & sampling_info)
-    : KernelInterface(), sampling_info_(sampling_info)
+  RBFKernel(const double gamma, const SamplingInfo & sampling_info)
+    : KernelInterface(), gamma_(gamma)
   {
-    // calculate dimension of feature (the number of RBF)
-    dim_feature_ = 0;
-    for (const size_t grid_num : grid_num_vec) {
-      dim_feature_ += grid_num;
+    // calculate dimension of feature (the number of RBF kernel)
+    dim_feature_ = 1;
+    for (const size_t grid_num : sampling_info.grid_num_vec) {
+      dim_feature_ *= grid_num;
     }
 
     std::vector<std::vector<double>> base_x_vec;
-    const double dim_x = x.rows();
-    for (size_t x_idx = 0; x_idx < dim_x, ++x_idx) {
-      const int grid_num = sampling_info_.grid_num_vec.at(x_idx);
-      const double max_val = sampling_info_.max_val_vec.at(x_idx);
-      const double min_val = sampling_info_.min_val_vec.at(x_idx);
+    for (size_t x_idx = 0; x_idx < sampling_info.grid_num_vec.size(); ++x_idx) {
+      const int grid_num = sampling_info.grid_num_vec.at(x_idx);
+      const double max_val = sampling_info.max_val_vec.at(x_idx);
+      const double min_val = sampling_info.min_val_vec.at(x_idx);
 
       std::vector<double> single_x_vec;
       for (size_t g_idx = 0; g_idx < grid_num; ++g_idx) {
@@ -66,60 +67,77 @@ public:
       base_x_vec.push_back(single_x_vec);
     }
 
-    Eigen::MatrixXd single_kernel_mat(sampling_info_.grid_num_vec.size(), dim_feature_);
-    for (size_t b_idx = 0; b_idx < base_x_vec.size(); ++b_ix) {
-      for (size_t g_idx = 0; g_idx < base_x_vec.at(b_idx); ++g_idx) {
-        const size_t m_idx = 
-        single_kernel_mat(b_idx, m_idx) = base_x_vec.at(b_idx).at(g_idx);
+    base_state_mat_.resize(sampling_info.grid_num_vec.size(), dim_feature_);
+    size_t divide_num = 1;
+    for (size_t b_idx = 0; b_idx < base_x_vec.size(); ++b_idx) {
+      divide_num *= base_x_vec.at(b_idx).size();
+      const size_t same_data_width = dim_feature_ / divide_num;
+      for (size_t g_idx = 0; g_idx < base_x_vec.at(b_idx).size(); ++g_idx) {
+        size_t m_idx = 0;
+        for (size_t d_idx = 0; d_idx < dim_feature_; ++d_idx) {
+          if (d_idx != 0 && d_idx % same_data_width == 0) {
+            m_idx += 1;
+          }
+          base_state_mat_(b_idx, d_idx) = base_x_vec.at(b_idx).at(m_idx % base_x_vec.at(b_idx).size());
+        }
       }
     }
   }
 
-  Eigen::MatrixXd calcKernelMatrix(const Eigen::MatrixXd x) const override
+  Eigen::MatrixXd calcKernelMatrix(const Eigen::MatrixXd & x) const override
   {
-    Eigen::MatrixXd kernel_mat(dim_feature_, x.cols());
+    Eigen::MatrixXd kernel_mat(x.cols(), dim_feature_);
 
     for (size_t c_idx = 0; c_idx < x.cols(); ++c_idx) {
       const Eigen::VectorXd single_x = x.block(0, c_idx, x.rows(), 1);
       const Eigen::VectorXd single_phi = calcSingleKernelMatrix(single_x);
 
-      kernel_mat.block(0, c_idx, dim_feature_, 1) = single_phi;
+      kernel_mat.block(c_idx, 0, 1, dim_feature_) = single_phi.transpose();
     }
 
     return kernel_mat;
   }
 
-private:
-  size_t dim_feature_;
-  Eigen::MatrixXd base_state_vec_;
+  size_t getDimFeature() const { return dim_feature_; }
 
-  Eigen::MatrixXd calcSingleKernelMatrix(const Eigen::VectorXd x) const override
+private:
+  double gamma_;
+
+  size_t dim_feature_;
+  Eigen::MatrixXd base_state_mat_;
+
+  Eigen::VectorXd calcSingleKernelMatrix(const Eigen::VectorXd & x) const override
   {
-    return single_kernel_mat;
+    Eigen::VectorXd feature_vec(base_state_mat_.cols());
+
+    for (size_t c_idx = 0; c_idx < base_state_mat_.cols(); ++c_idx) {
+      const Eigen::VectorXd diff_state = x - base_state_mat_.block(0, c_idx, base_state_mat_.rows(), 1);
+      feature_vec(c_idx) = std::exp(-std::pow(diff_state.norm(), 2) / 2.0 / std::pow(gamma_, 2));
+    }
+
+    return feature_vec;
   }
 };
 
 enum class KernelType
 {
- Polynomial = 0,
- RBF
+ RBF = 0,
 };
 
 class BayesianLinearRegression
 {
 public:
-  BayesianLinearRegression(KernelType kernel_type, const std::vector<SamplingInfo> sampling_info, const double initial_weight_sigma, const double observe_sigma)
-    : dim_x_(sampling_info.size()), observe_sigma_(observe_sigma)
+  BayesianLinearRegression(KernelType kernel_type, const SamplingInfo & sampling_info, const double initial_weight_sigma, const double observe_sigma)
+    : observe_sigma_(observe_sigma)
   {
     if (kernel_type == KernelType::RBF) {
-      kernel_ = std::make_shared<RBFKernel>(new_data_cov);
-    } else if (kernel_type == KernelType::Polynomial) {
-      const double new_data_cov = 1.0;
-      kernel_ = std::make_shared<PolynomialKernel>(dim_x, 3, new_data_cov);
+      const double gamma = 1.0;
+      kernel_ = std::make_unique<RBFKernel>(gamma, sampling_info);
     } else {
+      throw std::logic_error("Kernel type is invalid.");
     }
 
-    dim_feature_ = kenel_->getDimFeature();
+    dim_feature_ = kernel_->getDimFeature();
     initializeWeight(initial_weight_sigma);
   }
 
@@ -131,67 +149,97 @@ public:
 
   void reset(const double initial_weight_sigma)
   {
-    kernel_->initializeWeight(initial_weight_sigma);
+    initializeWeight(initial_weight_sigma);
   }
 
-  void updateWeight(const Eigen::MatrixXd x, const Eigen::VectorXd t)
+  void fit(const std::vector<std::vector<double>> & x_vec, const std::vector<std::vector<double>> & t_vec)
   {
-    const Eigen::MatrixXd phi = calcKernelMatrix(x);
-
-    const Eigen::MatrixXd weight_sigma_inv = weight_sigma_.inverse();
-
-    const Eigen::MatrixXd next_weight_sigma = weight_sigma_inv + std::pow(observe_sigma_, -2.0) * phi.transpose() * phi;
-    const Eigen::VectorXd next_weight_mu = next_weight_sigma_ * (weight_sigma_inv * weight_mu_ + std::pow(observe_sigma_, -2.0) * phi.transpose() * t);
-
-    weight_mu_ = next_weight_mu;
-    weight_sigma_ = next_weight_sigma;
-  }
-
-  void fit(const std::vector<std::vector<double>> x_vec, const std::vector<double> t_vec)
-  {
-    if (x_vec.size() != t_vec.size()) {
-      throw std::logic_error("The sizes of x_vec and t_vec are different");
+    if (x_vec.at(0).size() != t_vec.at(0).size()) {
+      std::stringstream ss;
+      ss << "The sizes of x_vec and t_vec are different. x_vec.at(0).size() = " << x_vec.at(0).size() << ", t_vec.at(0).size() = " << t_vec.at(0).size();
+      throw std::logic_error(ss.str());
     }
 
     Eigen::MatrixXd x_eigen_mat(x_vec.size(), x_vec.at(0).size());
-    Eigen::MatrixXd t_eigen_mat(t_vec.size());
+    Eigen::MatrixXd t_eigen_mat(t_vec.size(), t_vec.at(0).size());
 
     // convert std vector to eigen vector
     for (size_t i = 0; i < x_vec.size(); ++i) {
-      x_eigen_mat.block(0, i, x_vec.at(i).size(), 1) = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(x_vec.at(i).data(), x_vec.at(i).size());
+      x_eigen_mat.block(i, 0, 1, x_vec.at(i).size()) = Eigen::Map<const Eigen::MatrixXd>(x_vec.at(i).data(), 1, x_vec.at(i).size());
     }
-    t_eigen_mat.block(0, 0, 1, t_vec.size()) = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(t_vec.data(), t_vec.size());
-
+    for (size_t i = 0; i < t_vec.size(); ++i) {
+      t_eigen_mat.block(i, 0, 1, t_vec.at(i).size()) = Eigen::Map<const Eigen::MatrixXd>(t_vec.at(i).data(), 1, t_vec.at(i).size());
+    }
 
     // update kernel weight by regression
-    kernel_->updateWeight(x_eigen_mat, t_eigen_vec);
+    updateWeight(x_eigen_mat, t_eigen_mat);
   }
 
-  /*
-  Eigen::VectorXd predict(std::vector<std::vector<double>> x_data) const
+  Eigen::MatrixXd predict(const std::vector<double> & max_val_vec, const std::vector<double> & min_val_vec) const
   {
-    Eigen::MatrixXd x_eigen_mat(x_data.at(0).size(), x_data.size() - 1);
+    constexpr int grid_num = 100;
+    const int sample_num = std::pow(grid_num, max_val_vec.size());
 
-    // convert std vector to eigen vector
-    for (size_t i = 0; i < x_data.size(); ++i) {
-      x_eigen_mat.block(0, i, x_data.at(0).size(), 1) = Eigen::Map<Eigen::VectorXd, Eigen::Unaligned>(x_data.at(i).data(), x_data.at(i).size());
+    std::cout << "po1" << std::endl;
+    std::vector<std::vector<double>> sample_x_vec;
+    for (size_t x_idx = 0; x_idx < max_val_vec.size(); ++x_idx) {
+      const double max_val = max_val_vec.at(x_idx);
+      const double min_val = min_val_vec.at(x_idx);
+
+      std::vector<double> single_x_vec;
+      for (size_t g_idx = 0; g_idx < grid_num; ++g_idx) {
+        const double current_val = min_val + (max_val - min_val) * g_idx / (grid_num - 1.0);
+        single_x_vec.push_back(current_val);
+      }
+
+      sample_x_vec.push_back(single_x_vec);
     }
 
+    std::cout << "po2" << std::endl;
+    Eigen::MatrixXd sample_state_mat(max_val_vec.size(), sample_num);
+    size_t divide_num = 1;
+    for (size_t b_idx = 0; b_idx < sample_x_vec.size(); ++b_idx) {
+      divide_num *= sample_x_vec.at(b_idx).size();
+      const size_t same_data_width = sample_num / divide_num;
+      for (size_t g_idx = 0; g_idx < sample_x_vec.at(b_idx).size(); ++g_idx) {
+        size_t m_idx = 0;
+        for (size_t d_idx = 0; d_idx < sample_num; ++d_idx) {
+          if (d_idx != 0 && d_idx % same_data_width == 0) {
+            m_idx += 1;
+          }
+          sample_state_mat(b_idx, d_idx) = sample_x_vec.at(b_idx).at(m_idx % sample_x_vec.at(b_idx).size());
+        }
+      }
+    }
+
+    std::cout << "po3" << std::endl;
     // predict and return
-    return kernel_->predict(x_eigen_mat);
+    const Eigen::MatrixXd phi = kernel_->calcKernelMatrix(sample_state_mat);
+    const Eigen::MatrixXd predicted_state = weight_mu_.transpose() * phi.transpose();
+    return predicted_state;
   }
-  */
 
 private:
-  // const size_t dim_x_;
-  std::shared_ptr<KernelInterface> kernel_;
-  size_t dim_feature_;
-
   double observe_sigma_;
+
+  std::unique_ptr<KernelInterface> kernel_;
+  size_t dim_feature_;
 
   Eigen::VectorXd weight_mu_;
   Eigen::MatrixXd weight_sigma_;
 
+  void updateWeight(const Eigen::MatrixXd & x, const Eigen::MatrixXd & t)
+  {
+    const Eigen::MatrixXd phi = kernel_->calcKernelMatrix(x);
+
+    const Eigen::MatrixXd weight_sigma_inv = weight_sigma_.inverse();
+
+    const Eigen::MatrixXd next_weight_sigma = weight_sigma_inv + std::pow(observe_sigma_, -2.0) * phi.transpose() * phi;
+    const Eigen::VectorXd next_weight_mu = next_weight_sigma * (weight_sigma_inv * weight_mu_ + std::pow(observe_sigma_, -2.0) * phi.transpose() * t.transpose()); // TODO(murooka) t dimension
+
+    weight_mu_ = next_weight_mu;
+    weight_sigma_ = next_weight_sigma;
+  }
 };
 
 #endif  // ACCEL_BRAKE_MAP_CALIBRATOR__BAYESIAN_LINEAR_REGRESSION_HPP_
