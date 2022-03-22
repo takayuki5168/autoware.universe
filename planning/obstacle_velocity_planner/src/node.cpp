@@ -14,13 +14,13 @@
 
 #include "obstacle_velocity_planner/node.hpp"
 
+#include "obstacle_velocity_planner/polygon_utils.hpp"
 #include "obstacle_velocity_planner/resample.hpp"
 
 #include <interpolation/linear_interpolation.hpp>
 #include <interpolation/spline_interpolation.hpp>
 #include <tier4_autoware_utils/ros/update_param.hpp>
 #include <tier4_autoware_utils/tier4_autoware_utils.hpp>
-#include <vehicle_info_util/vehicle_info_util.hpp>
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -72,7 +72,7 @@ visualization_msgs::msg::MarkerArray getObjectMarkerArray(
   marker.ns = ns;
 
   marker.id = idx;
-  marker.lifetime = rclcpp::Duration::from_seconds(1.0);
+  marker.lifetime = rclcpp::Duration::from_seconds(0.8);
   marker.type = visualization_msgs::msg::Marker::CUBE;
   marker.action = visualization_msgs::msg::Marker::ADD;
   marker.pose = obstacle_pose;
@@ -122,20 +122,14 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   debug_calculation_time_ =
     create_publisher<tier4_debug_msgs::msg::Float32Stamped>("~/calculation_time", 1);
   debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/marker", 1);
+  debug_wall_marker_pub_ =
+    create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
 
   // Obstacle
   in_objects_ptr_ = std::make_unique<autoware_auto_perception_msgs::msg::PredictedObjects>();
 
   // Vehicle Parameters
-  const auto vehicle_info = vehicle_info_util::VehicleInfoUtil(*this).getVehicleInfo();
-
-  wheel_base_ = vehicle_info.wheel_base_m;
-  front_overhang_ = vehicle_info.front_overhang_m;
-  rear_overhang_ = vehicle_info.rear_overhang_m;
-  left_overhang_ = vehicle_info.left_overhang_m;
-  right_overhang_ = vehicle_info.right_overhang_m;
-  vehicle_width_ = vehicle_info.vehicle_width_m;
-  vehicle_length_ = vehicle_info.vehicle_length_m;
+  vehicle_info_ = vehicle_info_util::VehicleInfoUtil(*this).getVehicleInfo();
 
   // Parameters
   max_accel_ = declare_parameter("max_accel", 1.0);
@@ -226,6 +220,9 @@ void ObstacleVelocityPlanner::onExternalVelocityLimit(
 void ObstacleVelocityPlanner::trajectoryCallback(
   const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg)
 {
+  tier4_autoware_utils::StopWatch stop_watch;
+  stop_watch.tic();
+
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (msg->points.empty() || !current_twist_ptr_ || !in_objects_ptr_) {
@@ -241,7 +238,8 @@ void ObstacleVelocityPlanner::trajectoryCallback(
   planner_data.current_pose = self_pose_listener_.getCurrentPose()->pose;
   planner_data.current_vel = current_twist_ptr_->twist.linear.x;
   planner_data.external_velocity_limit = external_velocity_limit_;
-  planner_data.target_obstacles = filterObstacles(obstacles, planner_data.current_pose);
+  planner_data.target_obstacles = filterObstacles(
+    obstacles, planner_data.traj, planner_data.current_pose, planner_data.current_vel);
 
   // generate Trajectory
   const auto output = generateTrajectory(planner_data);
@@ -249,43 +247,109 @@ void ObstacleVelocityPlanner::trajectoryCallback(
   // Publish trajectory
   prev_output_ = output;
   trajectory_pub_->publish(output);
+
+  const double elapsed_time = stop_watch.toc();
+  RCLCPP_WARN_STREAM(get_logger(), elapsed_time);
 }
 
 std::vector<ObstacleVelocityPlanner::TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
-  const std::vector<TargetObstacle> & obstacles, const geometry_msgs::msg::Pose & current_pose)
+  const std::vector<TargetObstacle> & obstacles,
+  const autoware_auto_planning_msgs::msg::Trajectory & traj,
+  const geometry_msgs::msg::Pose & current_pose, const double current_vel)
 {
   std::vector<TargetObstacle> target_obstacles;
 
-  const auto surrounding_lanelets = getSurroundingLanelets(current_pose);
+  // TODO(murooka) parametrise these parameters
+  constexpr double margin_between_traj_and_obstacle = 0.3;
+  constexpr double min_obstacle_velocity = 3.0;  // 10.8 [km/h]
+  constexpr double margin_for_collision_time = 3.0;
+  constexpr double max_ego_obj_overlap_time = 1.0;
+  constexpr double max_prediction_time_for_collision_check = 20.0;
+
+  const auto traj_polygons = polygon_utils::createOneStepPolygons(traj, vehicle_info_);
 
   for (const auto & obstacle : obstacles) {
-    // Step1. Ignore obstacles that are not vehicles
-    if (
-      obstacle.classification.label !=
-        autoware_auto_perception_msgs::msg::ObjectClassification::CAR &&
-      obstacle.classification.label !=
-        autoware_auto_perception_msgs::msg::ObjectClassification::TRUCK &&
-      obstacle.classification.label !=
-        autoware_auto_perception_msgs::msg::ObjectClassification::BUS &&
-      obstacle.classification.label !=
-        autoware_auto_perception_msgs::msg::ObjectClassification::MOTORCYCLE) {
-      // RCLCPP_DEBUG(get_logger(), "Ignore non-vehicle obstacle");
-      continue;
-    }
+    const auto first_within_idx = polygon_utils::getFirstCollisionIndex(
+      traj_polygons, polygon_utils::convertObstacleToPolygon(obstacle.pose, obstacle.shape),
+      margin_between_traj_and_obstacle);
 
-    // Step2. Check if the object is on the map
-    if (use_hd_map_ && !checkOnMapObject(obstacle, surrounding_lanelets)) {
-      continue;
-    }
+    if (first_within_idx) {  // obsacles inside the trajectory
+      if (
+        obstacle.classification.label ==
+          autoware_auto_perception_msgs::msg::ObjectClassification::CAR ||
+        obstacle.classification.label ==
+          autoware_auto_perception_msgs::msg::ObjectClassification::TRUCK ||
+        obstacle.classification.label ==
+          autoware_auto_perception_msgs::msg::ObjectClassification::BUS ||
+        obstacle.classification.label ==
+          autoware_auto_perception_msgs::msg::ObjectClassification::MOTORCYCLE) {  // vehicle
+                                                                                   // obstacle
 
-    // Step3 Check the predicted path
-    if (obstacle.predicted_paths.empty()) {
-      // RCLCPP_DEBUG(get_logger(), "This object does not have predicted paths");
-      continue;
+        if (std::abs(obstacle.velocity) > min_obstacle_velocity) {  // running obstacle
+          const double time_to_collision = [&]() {
+            // TODO(murooka) consider obstacle width/length the same as
+            // vehicle_info_.max_longitudinal_offset_m
+            const double dist_to_ego =
+              tier4_autoware_utils::calcSignedArcLength(
+                traj.points, current_pose.position, first_within_idx.get()) -
+              vehicle_info_.max_longitudinal_offset_m;
+            return dist_to_ego / std::max(1e-6, current_vel);
+          }();
+
+          const double time_to_obstacle_getting_out = [&]() {
+            const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
+              traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape, first_within_idx.get(),
+              margin_between_traj_and_obstacle);
+            if (!obstacle_getting_out_idx) {
+              return std::numeric_limits<double>::max();
+            }
+
+            const double dist_to_obstacle_getting_out = tier4_autoware_utils::calcSignedArcLength(
+              traj.points, obstacle.pose.position, obstacle_getting_out_idx.get());
+            std::cerr << dist_to_obstacle_getting_out << std::endl;
+            return dist_to_obstacle_getting_out / obstacle.velocity;
+          }();
+
+          /*
+          RCLCPP_ERROR_STREAM(
+            get_logger(), first_within_idx.get()
+                            << "/" << traj.points.size() << " " << time_to_collision << " < "
+                            << time_to_obstacle_getting_out);
+          */
+
+          if (time_to_collision > time_to_obstacle_getting_out + margin_for_collision_time) {
+            // False Condition 1. Ignore vehicle obstacles inside the trajectory, which is running
+            // and does not collide with ego in a certain time.
+            continue;
+          }
+        }
+      }
+    } else {  // obstacles outside the trajectory
+      const double max_dist =
+        3.0;  // std::max(vehicle_info_.max_longitudinal_offset_m, vehicle_info_.rear_overhang) +
+              // std::max(shape.dimensions.x, shape.dimensions.y) / 2.0;
+      const bool will_collide = polygon_utils::willCollideWithSurroundObstacle(
+        traj, traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape,
+        margin_between_traj_and_obstacle, max_dist, max_ego_obj_overlap_time,
+        max_prediction_time_for_collision_check);
+      if (!will_collide) {
+        // False Condition 2. Ignore vehicle obstacles outside the trajectory, whose predicted path
+        // overlaps the ego trajectory in a certain time.
+        continue;
+      }
     }
 
     target_obstacles.push_back(obstacle);
   }
+
+  // publish filtered obstacles
+  visualization_msgs::msg::MarkerArray object_msg;
+  for (size_t i = 0; i < target_obstacles.size(); ++i) {
+    const auto marker =
+      getObjectMarkerArray(target_obstacles.at(i).pose, i, "objects_to_follow", 0.7, 0.7, 0.0);
+    tier4_autoware_utils::appendMarkerArray(marker, &object_msg);
+  }
+  debug_marker_pub_->publish(object_msg);
 
   return target_obstacles;
 }
@@ -596,7 +660,8 @@ double ObstacleVelocityPlanner::getClosestStopDistance(
       getDistanceToCollisionPoint(ego_traj_data, obj_data, current_delta_yaw_threshold);
 
     // Calculate Safety Distance
-    const double ego_vehicle_offset = wheel_base_ + front_overhang_;
+    const double ego_vehicle_offset = vehicle_info_.wheel_base_m;
+    +vehicle_info_.front_overhang_m;
     const double object_offset = obj_data.length / 2.0;
     const double safety_distance = ego_vehicle_offset + object_offset + safe_distance_margin_;
 
@@ -797,6 +862,7 @@ TrajectoryData ObstacleVelocityPlanner::getTrajectoryData(
   const autoware_auto_planning_msgs::msg::Trajectory & traj, const size_t closest_idx)
 {
   TrajectoryData base_traj;
+  base_traj.traj.header = traj.header;
   base_traj.traj.points.push_back(traj.points.at(closest_idx));
   base_traj.s.push_back(0.0);
 
@@ -925,8 +991,6 @@ boost::optional<SBoundaries> ObstacleVelocityPlanner::getSBoundaries(
     s_boundaries.at(i).max_s = ego_traj_data.s.back();
   }
 
-  visualization_msgs::msg::MarkerArray msg;
-
   double min_slow_down_point_length = std::numeric_limits<double>::max();
   boost::optional<size_t> min_slow_down_idx = {};
   for (size_t o_idx = 0; o_idx < planner_data.target_obstacles.size(); ++o_idx) {
@@ -953,8 +1017,8 @@ boost::optional<SBoundaries> ObstacleVelocityPlanner::getSBoundaries(
     }
 
     // Step4 add object to marker
-    const auto marker = getObjectMarkerArray(obj.pose, o_idx, "objects_to_follow", 0.7, 0.7, 0.0);
-    tier4_autoware_utils::appendMarkerArray(marker, &msg);
+    // const auto marker = getObjectMarkerArray(obj.pose, o_idx, "objects_to_follow", 0.7, 0.7,
+    // 0.0); tier4_autoware_utils::appendMarkerArray(marker, &msg);
 
     // Step5 search nearest obstacle to follow for rviz marker
     const double object_offset = obj.shape.dimensions.x / 2.0;
@@ -997,21 +1061,23 @@ boost::optional<SBoundaries> ObstacleVelocityPlanner::getSBoundaries(
       ego_traj_data, planner_data.current_pose.position, min_slow_down_point_length);
 
     if (marker_pose) {
+      visualization_msgs::msg::MarkerArray wall_msg;
+
       const double obj_vel = std::fabs(obj.velocity);
       if (obj_vel < object_zero_velocity_threshold_) {
         const auto markers = tier4_autoware_utils::createStopVirtualWallMarker(
           marker_pose.get(), "obstacle to follow", current_time, 0);
-        tier4_autoware_utils::appendMarkerArray(markers, &msg);
+        tier4_autoware_utils::appendMarkerArray(markers, &wall_msg);
       } else {
         const auto markers = tier4_autoware_utils::createSlowDownVirtualWallMarker(
           marker_pose.get(), "obstacle to follow", current_time, 0);
-        tier4_autoware_utils::appendMarkerArray(markers, &msg);
+        tier4_autoware_utils::appendMarkerArray(markers, &wall_msg);
       }
+
+      // publish rviz marker
+      debug_wall_marker_pub_->publish(wall_msg);
     }
   }
-
-  // publish rviz marker
-  debug_marker_pub_->publish(msg);
 
   return s_boundaries;
 }
@@ -1050,7 +1116,8 @@ boost::optional<SBoundaries> ObstacleVelocityPlanner::getSBoundaries(
     getDistanceToCollisionPoint(ego_traj_data, obj_data, current_delta_yaw_threshold);
 
   // Calculate Safety Distance
-  const double ego_vehicle_offset = wheel_base_ + front_overhang_;
+  const double ego_vehicle_offset = vehicle_info_.wheel_base_m;
+  +vehicle_info_.front_overhang_m;
   const double object_offset = obj_data.length / 2.0;
   const double safety_distance = ego_vehicle_offset + object_offset + safe_distance_margin_;
 
@@ -1251,8 +1318,8 @@ boost::optional<geometry_msgs::msg::Pose> ObstacleVelocityPlanner::calcForwardPo
     }
   }
 
-  if (search_idx == 0) {
-    return {};
+  if (search_idx == 0 && !ego_traj_data.traj.points.empty()) {
+    return ego_traj_data.traj.points.at(0).pose;
   }
 
   const auto & pre_pose = ego_traj_data.traj.points.at(search_idx - 1).pose;
@@ -1296,7 +1363,8 @@ boost::optional<size_t> ObstacleVelocityPlanner::getCollisionIdx(
 {
   for (size_t ego_idx = start_idx; ego_idx <= end_idx; ++ego_idx) {
     const auto ego_center_pose = transformBaseLink2Center(ego_traj.traj.points.at(ego_idx).pose);
-    const auto ego_box = Box2d(ego_center_pose, vehicle_length_, vehicle_width_);
+    const auto ego_box =
+      Box2d(ego_center_pose, vehicle_info_.vehicle_length_m, vehicle_info_.vehicle_width_m);
     if (ego_box.hasOverlap(obj_box)) {
       return ego_idx;
     }
@@ -1511,7 +1579,7 @@ geometry_msgs::msg::Pose ObstacleVelocityPlanner::transformBaseLink2Center(
 
   // set vertices at map coordinate
   tf2::Vector3 base2center;
-  base2center.setX(std::fabs(vehicle_length_ / 2.0 - rear_overhang_));
+  base2center.setX(std::fabs(vehicle_info_.vehicle_length_m / 2.0 - vehicle_info_.rear_overhang_m));
   base2center.setY(0.0);
   base2center.setZ(0.0);
   base2center.setW(1.0);

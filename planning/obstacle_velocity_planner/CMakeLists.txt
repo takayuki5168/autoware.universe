@@ -14,6 +14,7 @@ ament_auto_add_library(obstacle_velocity_planner_core SHARED
   src/node.cpp
   src/resample.cpp
   src/box2d.cpp
+  src/polygon_utils.cpp
   src/velocity_optimizer.cpp
 )
 

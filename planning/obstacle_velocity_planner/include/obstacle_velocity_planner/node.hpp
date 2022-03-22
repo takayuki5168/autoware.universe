@@ -25,6 +25,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tier4_autoware_utils/ros/self_pose_listener.hpp>
 #include <tier4_autoware_utils/system/stop_watch.hpp>
+#include <vehicle_info_util/vehicle_info_util.hpp>
 
 #include <autoware_auto_mapping_msgs/msg/had_map_bin.hpp>
 #include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
@@ -50,6 +51,10 @@
 #include <mutex>
 #include <tuple>
 #include <vector>
+
+namespace bg = boost::geometry;
+using tier4_autoware_utils::Point2d;
+using tier4_autoware_utils::Polygon2d;
 
 struct TrajectoryData
 {
@@ -142,7 +147,9 @@ private:
 
   // Member Functions
   std::vector<TargetObstacle> filterObstacles(
-    const std::vector<TargetObstacle> & obstacles, const geometry_msgs::msg::Pose & current_pose);
+    const std::vector<TargetObstacle> & obstacles,
+    const autoware_auto_planning_msgs::msg::Trajectory & traj,
+    const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
     const ObstacleVelocityPlannerData & planner_data);
@@ -264,6 +271,7 @@ private:
   rclcpp::Publisher<tier4_debug_msgs::msg::Float32Stamped>::SharedPtr distance_to_closest_obj_pub_;
   rclcpp::Publisher<tier4_debug_msgs::msg::Float32Stamped>::SharedPtr debug_calculation_time_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
 
   // Calculation time watcher
   tier4_autoware_utils::StopWatch<std::chrono::milliseconds> stop_watch_;
@@ -294,13 +302,7 @@ private:
   std::shared_ptr<VelocityOptimizer> velocity_optimizer_ptr_;
 
   // Vehicle Parameters
-  double wheel_base_;
-  double front_overhang_;
-  double rear_overhang_;
-  double left_overhang_;
-  double right_overhang_;
-  double vehicle_length_;
-  double vehicle_width_;
+  vehicle_info_util::VehicleInfo vehicle_info_;
 
   // Parameters
   double max_accel_;
