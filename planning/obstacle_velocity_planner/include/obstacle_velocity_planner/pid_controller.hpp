@@ -28,9 +28,12 @@ public:
   double calc(const double error)
   {
     error_sum_ += error;
+
     // TODO(murooka) use time for d gain calculation
-    return kp_ * error + ki_ * error_sum_ +
-           (prev_error_ ? kd_ * (-error + prev_error_.get()) : 0.0);
+    const double output =
+      kp_ * error + ki_ * error_sum_ + (prev_error_ ? kd_ * (-error + prev_error_.get()) : 0.0);
+    prev_error_ = error;
+    return output;
   }
 
 private:
