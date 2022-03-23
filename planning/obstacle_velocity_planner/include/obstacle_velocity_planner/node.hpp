@@ -16,12 +16,11 @@
 #define OBSTACLE_VELOCITY_PLANNER__NODE_HPP_
 
 #include "obstacle_velocity_planner/common_structs.hpp"
-#include "obstacle_velocity_planner/optimization_based_planner.hpp"
-#include "obstacle_velocity_planner/pid_controller.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/optimization_based_planner.hpp"
+#include "obstacle_velocity_planner/rule_based_planner/rule_based_planner.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <tier4_autoware_utils/ros/self_pose_listener.hpp>
-#include <vehicle_info_util/vehicle_info_util.hpp>
 
 #include <autoware_auto_mapping_msgs/msg/had_map_bin.hpp>
 #include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
@@ -54,7 +53,7 @@ public:
   explicit ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options);
 
 private:
-  enum class Method { OPTIMIZATION_BASE, RULE_BASE };
+  enum class PlanningMethod { OPTIMIZATION_BASE, RULE_BASE };
 
   // Callback Functions
   void mapCallback(const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg);
@@ -95,11 +94,12 @@ private:
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr external_vel_limit_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
 
   // Self Pose Listener
   tier4_autoware_utils::SelfPoseListener self_pose_listener_;
+
+  // Vehicle Parameters
+  vehicle_info_util::VehicleInfo vehicle_info_;
 
   // Mutex
   std::mutex mutex_;
@@ -109,22 +109,8 @@ private:
   geometry_msgs::msg::TwistStamped::SharedPtr current_twist_ptr_;
   geometry_msgs::msg::TwistStamped::SharedPtr previous_twist_ptr_;
 
-  // Vehicle Parameters
-  vehicle_info_util::VehicleInfo vehicle_info_;
-
-  // Parameters
-  double max_accel_;
-  double min_accel_;
-  double max_jerk_;
-  double min_jerk_;
-  double min_object_accel_;
-  double t_idling_;
-
-  // Rule base
-  boost::optional<double> prev_target_vel_;
-  PIDController pid_controller_;
-
-  std::unique_ptr<OptimizationBasedPlanner> optimization_based_planner_ptr_;
+  PlanningMethod planning_method_;
+  std::unique_ptr<PlannerInterface> planner_ptr_;
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__NODE_HPP_

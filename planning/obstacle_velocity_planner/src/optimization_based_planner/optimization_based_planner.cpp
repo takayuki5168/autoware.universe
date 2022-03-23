@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "obstacle_velocity_planner/optimization_based_planner.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/optimization_based_planner.hpp"
 
-#include "obstacle_velocity_planner/resample.hpp"
+#include "interpolation/linear_interpolation.hpp"
+#include "interpolation/spline_interpolation.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/resample.hpp"
 #include "obstacle_velocity_planner/utils.hpp"
-
-#include <interpolation/linear_interpolation.hpp>
-#include <interpolation/spline_interpolation.hpp>
-#include <tier4_autoware_utils/tier4_autoware_utils.hpp>
+#include "tier4_autoware_utils/tier4_autoware_utils.hpp"
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -57,8 +56,7 @@ inline tf2::Vector3 getTransVector3(
 }
 }  // namespace
 
-autoware_auto_planning_msgs::msg::Trajectory
-OptimizationBasedPlanner::generateOptimizationTrajectory(
+autoware_auto_planning_msgs::msg::Trajectory OptimizationBasedPlanner::generateTrajectory(
   const ObstacleVelocityPlannerData & planner_data)
 {
   // Create Time Vector defined by resampling time interval
@@ -105,7 +103,7 @@ OptimizationBasedPlanner::generateOptimizationTrajectory(
   std::tie(v0, a0) = calcInitialMotion(
     planner_data.current_vel, planner_data.traj, *closest_idx, prev_output_, closest_stop_dist);
   v0 = std::min(v0 + initial_velocity_margin_, v_max);
-  a0 = std::min(max_accel_, std::max(a0, min_accel_));
+  a0 = std::min(longitudinal_info_.max_accel, std::max(a0, longitudinal_info_.min_accel));
 
   // If closest distance is too close, return zero velocity
   if (closest_stop_dist < 0.01) {
@@ -159,12 +157,12 @@ OptimizationBasedPlanner::generateOptimizationTrajectory(
   data.s0 = resampled_traj_data.s.front();
   data.a0 = a0;
   data.v_max = v_max;
-  data.a_max = max_accel_;
-  data.a_min = min_accel_;
-  data.j_max = max_jerk_;
-  data.j_min = min_jerk_;
+  data.a_max = longitudinal_info_.max_accel;
+  data.a_min = longitudinal_info_.min_accel;
+  data.j_max = longitudinal_info_.max_jerk;
+  data.j_min = longitudinal_info_.min_jerk;
   data.t_dangerous = t_dangerous_;
-  data.t_idling = t_idling_;
+  data.t_idling = longitudinal_info_.t_idling;
   data.s_boundary = *s_boundaries;
   data.v0 = v0;
   RCLCPP_DEBUG(
@@ -764,10 +762,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
       *predicted_path, obj_base_time, current_time);
 
     const double obj_vel = std::abs(obj.velocity);
-    const double rss_dist =
-      planner_data.current_vel * t_idling_ + 0.5 * max_accel_ * std::pow(t_idling_, 2) +
-      std::pow(planner_data.current_vel + max_accel_ * t_idling_, 2) * 0.5 / std::abs(min_accel_) -
-      std::pow(obj_vel, 2) * 0.5 / std::abs(min_object_accel_);
+    const double rss_dist = calcRSSDistance(planner_data.current_vel, obj_vel);
 
     const double ego_obj_length = tier4_autoware_utils::calcSignedArcLength(
       ego_traj_data.traj.points, planner_data.current_pose.position,
@@ -909,9 +904,13 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     }
 
     double s_upper_bound =
-      current_s_obj + (current_v_obj * current_v_obj) / (2 * std::abs(min_object_accel_)) -
-      0.5 * max_accel_ * t_idling_ * t_idling_ -
-      0.5 * max_accel_ * max_accel_ * t_idling_ * t_idling_ / std::abs(min_accel_);
+      current_s_obj +
+      (current_v_obj * current_v_obj) / (2 * std::abs(longitudinal_info_.min_object_accel)) -
+      0.5 * longitudinal_info_.max_accel * longitudinal_info_.t_idling *
+        longitudinal_info_.t_idling -
+      0.5 * longitudinal_info_.max_accel * longitudinal_info_.max_accel *
+        longitudinal_info_.t_idling * longitudinal_info_.t_idling /
+        std::abs(longitudinal_info_.min_accel);
     s_upper_bound = std::max(s_upper_bound, 0.0);
     if (s_upper_bound < s_boundaries.at(i).max_s) {
       s_boundaries.at(i).max_s = s_upper_bound;
@@ -967,7 +966,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     for (size_t i = 0; i < predicted_path_id; ++i) {
       if (s_upper_bound < s_boundaries.at(i).max_s) {
         s_boundaries.at(i).max_s =
-          s_upper_bound + (v_obj * v_obj) / (2 * std::abs(min_object_accel_));
+          s_upper_bound + (v_obj * v_obj) / (2 * std::abs(longitudinal_info_.min_object_accel));
         s_boundaries.at(i).is_object = true;
       }
     }

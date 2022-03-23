@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef OBSTACLE_VELOCITY_PLANNER__COMMON__S_BOUNDARY_HPP_
-#define OBSTACLE_VELOCITY_PLANNER__COMMON__S_BOUNDARY_HPP_
+#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__S_BOUNDARY_HPP_
+#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__S_BOUNDARY_HPP_
 
 #include <limits>
 #include <vector>
@@ -30,4 +30,4 @@ public:
 
 using SBoundaries = std::vector<SBoundary>;
 
-#endif  // OBSTACLE_VELOCITY_PLANNER__COMMON__S_BOUNDARY_HPP_
+#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__S_BOUNDARY_HPP_

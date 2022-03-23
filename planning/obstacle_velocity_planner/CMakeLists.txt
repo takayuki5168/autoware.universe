@@ -12,12 +12,13 @@ find_package(Eigen3 REQUIRED)
 
 ament_auto_add_library(obstacle_velocity_planner_core SHARED
   src/node.cpp
-  src/resample.cpp
-  src/box2d.cpp
-  src/polygon_utils.cpp
-  src/velocity_optimizer.cpp
   src/utils.cpp
-  src/optimization_based_planner.cpp
+  src/polygon_utils.cpp
+  src/optimization_based_planner/resample.cpp
+  src/optimization_based_planner/box2d.cpp
+  src/optimization_based_planner/velocity_optimizer.cpp
+  src/optimization_based_planner/optimization_based_planner.cpp
+  src/rule_based_planner/rule_based_planner.cpp
 )
 
 rclcpp_components_register_node(obstacle_velocity_planner_core

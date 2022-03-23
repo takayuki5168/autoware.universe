@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef OBSTACLE_VELOCITY_PLANNER__RESAMPLE_HPP_
-#define OBSTACLE_VELOCITY_PLANNER__RESAMPLE_HPP_
+#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__RESAMPLE_HPP_
+#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__RESAMPLE_HPP_
 
 #include "tier4_autoware_utils/tier4_autoware_utils.hpp"
 
@@ -47,4 +47,4 @@ autoware_auto_planning_msgs::msg::Trajectory applyLinearInterpolation(
   const std::vector<double> & out_index, const bool use_spline_for_pose = false);
 }  // namespace resampling
 
-#endif  // OBSTACLE_VELOCITY_PLANNER__RESAMPLE_HPP_
+#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__RESAMPLE_HPP_

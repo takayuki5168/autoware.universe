@@ -12,92 +12,84 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_
-#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_
+#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_
+#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_
 
-#include "obstacle_velocity_planner/box2d.hpp"
-#include "obstacle_velocity_planner/common/s_boundary.hpp"
-#include "obstacle_velocity_planner/common/st_point.hpp"
-#include "obstacle_velocity_planner/common_structs.hpp"
-#include "obstacle_velocity_planner/velocity_optimizer.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/box2d.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/s_boundary.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/st_point.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/velocity_optimizer.hpp"
+#include "obstacle_velocity_planner/planner_interface.hpp"
+#include "tier4_autoware_utils/tier4_autoware_utils.hpp"
+#include "vehicle_info_util/vehicle_info_util.hpp"
 
 #include <lanelet2_extension/utility/message_conversion.hpp>
 #include <lanelet2_extension/utility/utilities.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <tier4_autoware_utils/system/stop_watch.hpp>
-#include <vehicle_info_util/vehicle_info_util.hpp>
 
 #include <tier4_debug_msgs/msg/float32_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <boost/optional.hpp>
 
-#include <lanelet2_core/LaneletMap.h>
-#include <lanelet2_core/geometry/BoundingBox.h>
-#include <lanelet2_core/geometry/Lanelet.h>
-#include <lanelet2_core/geometry/Point.h>
-#include <lanelet2_routing/RoutingGraph.h>
-#include <lanelet2_traffic_rules/TrafficRulesFactory.h>
-
 #include <memory>
 #include <tuple>
 #include <vector>
 
-class OptimizationBasedPlanner
+class OptimizationBasedPlanner : public PlannerInterface
 {
 public:
   OptimizationBasedPlanner(
     rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
     const double min_jerk, const double min_object_accel, const double t_idling,
-    const double resampling_s_interval, const double max_trajectory_length,
-    const double dense_resampling_time_interval, const double sparse_resampling_time_interval,
-    const double dense_time_horizon, const double max_time_horizon,
-    const double delta_yaw_threshold_of_nearest_index,
-    const double delta_yaw_threshold_of_object_and_ego, const double object_zero_velocity_threshold,
-    const double object_low_velocity_threshold, const double external_velocity_limit,
-    const double collision_time_threshold, const double safe_distance_margin,
-    const double t_dangerous, const double initial_velocity_margin,
-    const bool enable_adaptive_cruise, const bool use_object_acceleration, const bool use_hd_map,
-    const double replan_vel_deviation, const double engage_velocity,
-    const double engage_acceleration, const double engage_exit_ratio,
-    const double stop_dist_to_prohibit_engage, const double max_s_weight, const double max_v_weight,
-    const double over_s_safety_weight, const double over_s_ideal_weight, const double over_v_weight,
-    const double over_a_weight, const double over_j_weight)
-  : max_accel_(max_accel),
-    min_accel_(min_accel),
-    max_jerk_(max_jerk),
-    min_jerk_(min_jerk),
-    min_object_accel_(min_object_accel),
-    t_idling_(t_idling),
-    resampling_s_interval_(resampling_s_interval),
-    max_trajectory_length_(max_trajectory_length),
-    dense_resampling_time_interval_(dense_resampling_time_interval),
-    sparse_resampling_time_interval_(sparse_resampling_time_interval),
-    dense_time_horizon_(dense_time_horizon),
-    max_time_horizon_(max_time_horizon),
-    delta_yaw_threshold_of_nearest_index_(delta_yaw_threshold_of_nearest_index),
-    delta_yaw_threshold_of_object_and_ego_(delta_yaw_threshold_of_object_and_ego),
-    object_zero_velocity_threshold_(object_zero_velocity_threshold),
-    object_low_velocity_threshold_(object_low_velocity_threshold),
-    external_velocity_limit_(external_velocity_limit),
-    collision_time_threshold_(collision_time_threshold),
-    safe_distance_margin_(safe_distance_margin),
-    t_dangerous_(t_dangerous),
-    initial_velocity_margin_(initial_velocity_margin),
-    enable_adaptive_cruise_(enable_adaptive_cruise),
-    use_object_acceleration_(use_object_acceleration),
-    use_hd_map_(use_hd_map),
-    replan_vel_deviation_(replan_vel_deviation),
-    engage_velocity_(engage_velocity),
-    engage_acceleration_(engage_acceleration),
-    engage_exit_ratio_(engage_exit_ratio),
-    stop_dist_to_prohibit_engage_(stop_dist_to_prohibit_engage)
+    const vehicle_info_util::VehicleInfo & vehicle_info)
+  : PlannerInterface(
+      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info)
   {
-    vehicle_info_ = vehicle_info_util::VehicleInfoUtil(node).getVehicleInfo();
+    // parameter
+    resampling_s_interval_ = node.declare_parameter("resampling_s_interval", 1.0);
+    max_trajectory_length_ = node.declare_parameter("max_trajectory_length", 200.0);
+    dense_resampling_time_interval_ = node.declare_parameter("dense_resampling_time_interval", 0.1);
+    sparse_resampling_time_interval_ =
+      node.declare_parameter("sparse_resampling_time_interval", 0.5);
+    dense_time_horizon_ = node.declare_parameter("dense_time_horizon", 5.0);
+    max_time_horizon_ = node.declare_parameter("max_time_horizon", 15.0);
 
+    delta_yaw_threshold_of_nearest_index_ = tier4_autoware_utils::deg2rad(
+      node.declare_parameter("delta_yaw_threshold_of_nearest_index", 60.0));
+    delta_yaw_threshold_of_object_and_ego_ = tier4_autoware_utils::deg2rad(
+      node.declare_parameter("delta_yaw_threshold_of_object_and_ego", 180.0));
+    object_zero_velocity_threshold_ = node.declare_parameter("object_zero_velocity_threshold", 1.5);
+    object_low_velocity_threshold_ = node.declare_parameter("object_low_velocity_threshold", 3.0);
+    external_velocity_limit_ = node.declare_parameter("external_velocity_limit", 20.0);
+    collision_time_threshold_ = node.declare_parameter("collision_time_threshold", 10.0);
+    safe_distance_margin_ = node.declare_parameter("safe_distance_margin", 2.0);
+    t_dangerous_ = node.declare_parameter("t_dangerous", 0.5);
+    initial_velocity_margin_ = node.declare_parameter("initial_velocity_margin", 0.2);
+    enable_adaptive_cruise_ = node.declare_parameter("enable_adaptive_cruise", true);
+    use_object_acceleration_ = node.declare_parameter("use_object_acceleration", true);
+    use_hd_map_ = node.declare_parameter("use_hd_map", true);
+
+    replan_vel_deviation_ = node.declare_parameter("replan_vel_deviation", 5.53);
+    engage_velocity_ = node.declare_parameter("engage_velocity", 0.25);
+    engage_acceleration_ = node.declare_parameter("engage_acceleration", 0.1);
+    engage_exit_ratio_ = node.declare_parameter("engage_exit_ratio", 0.5);
+    stop_dist_to_prohibit_engage_ = node.declare_parameter("stop_dist_to_prohibit_engage", 0.5);
+
+    const double max_s_weight = node.declare_parameter("max_s_weight", 10.0);
+    const double max_v_weight = node.declare_parameter("max_v_weight", 100.0);
+    const double over_s_safety_weight = node.declare_parameter("over_s_safety_weight", 1000000.0);
+    const double over_s_ideal_weight = node.declare_parameter("over_s_ideal_weight", 800.0);
+    const double over_v_weight = node.declare_parameter("over_v_weight", 500000.0);
+    const double over_a_weight = node.declare_parameter("over_a_weight", 1000.0);
+    const double over_j_weight = node.declare_parameter("over_j_weight", 50000.0);
+
+    // velocity optimizer
     velocity_optimizer_ptr_ = std::make_shared<VelocityOptimizer>(
       max_s_weight, max_v_weight, over_s_safety_weight, over_s_ideal_weight, over_v_weight,
       over_a_weight, over_j_weight);
+
+    // publisher
     optimized_sv_pub_ = node.create_publisher<autoware_auto_planning_msgs::msg::Trajectory>(
       "~/optimized_sv_trajectory", 1);
     optimized_st_graph_pub_ = node.create_publisher<autoware_auto_planning_msgs::msg::Trajectory>(
@@ -112,23 +104,8 @@ public:
       node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
   }
 
-  autoware_auto_planning_msgs::msg::Trajectory generateOptimizationTrajectory(
-    const ObstacleVelocityPlannerData & planner_data);
-
-  void setMaps(
-    const std::shared_ptr<lanelet::LaneletMap> lanelet_map_ptr,
-    const std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr,
-    const std::shared_ptr<lanelet::routing::RoutingGraph> routing_graph_ptr)
-  {
-    lanelet_map_ptr_ = lanelet_map_ptr;
-    traffic_rules_ptr_ = traffic_rules_ptr;
-    routing_graph_ptr_ = routing_graph_ptr;
-  }
-
-  void setSmoothedTrajectory(const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr traj)
-  {
-    smoothed_trajectory_ptr_ = traj;
-  }
+  autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
+    const ObstacleVelocityPlannerData & planner_data) override;
 
 private:
   struct TrajectoryData
@@ -249,19 +226,10 @@ private:
   // Calculation time watcher
   tier4_autoware_utils::StopWatch<std::chrono::milliseconds> stop_watch_;
 
-  // Lanelet Map Pointers
-  std::shared_ptr<lanelet::LaneletMap> lanelet_map_ptr_;
-  std::shared_ptr<lanelet::routing::RoutingGraph> routing_graph_ptr_;
-  std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr_;
-
   autoware_auto_planning_msgs::msg::Trajectory prev_output_;
-  autoware_auto_planning_msgs::msg::Trajectory::SharedPtr smoothed_trajectory_ptr_;
 
   // Velocity Optimizer
   std::shared_ptr<VelocityOptimizer> velocity_optimizer_ptr_;
-
-  // Vehicle Parameters
-  vehicle_info_util::VehicleInfo vehicle_info_;
 
   // Publisher
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr boundary_pub_;
@@ -271,13 +239,6 @@ private:
   rclcpp::Publisher<tier4_debug_msgs::msg::Float32Stamped>::SharedPtr distance_to_closest_obj_pub_;
   rclcpp::Publisher<tier4_debug_msgs::msg::Float32Stamped>::SharedPtr debug_calculation_time_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
-
-  // Parameters
-  double max_accel_;
-  double min_accel_;
-  double max_jerk_;
-  double min_jerk_;
-  double min_object_accel_;
 
   // Resampling Parameter
   double resampling_s_interval_;
@@ -295,7 +256,6 @@ private:
   double collision_time_threshold_;
   double safe_distance_margin_;
   double t_dangerous_;
-  double t_idling_;
   double initial_velocity_margin_;
   bool enable_adaptive_cruise_;
   bool use_object_acceleration_;
@@ -308,4 +268,4 @@ private:
   double stop_dist_to_prohibit_engage_;
 };
 
-#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_
+#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__OPTIMIZATION_BASED_PLANNER_HPP_

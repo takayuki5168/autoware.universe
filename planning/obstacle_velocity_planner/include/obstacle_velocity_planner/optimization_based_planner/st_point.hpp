@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef OBSTACLE_VELOCITY_PLANNER__COMMON__ST_POINT_HPP_
-#define OBSTACLE_VELOCITY_PLANNER__COMMON__ST_POINT_HPP_
+#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__ST_POINT_HPP_
+#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__ST_POINT_HPP_
 
 #include <vector>
 
@@ -28,4 +28,4 @@ public:
 
 using STPoints = std::vector<STPoint>;
 
-#endif  // OBSTACLE_VELOCITY_PLANNER__COMMON__ST_POINT_HPP_
+#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__ST_POINT_HPP_

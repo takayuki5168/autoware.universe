@@ -76,4 +76,25 @@ struct ObstacleVelocityPlannerData
   std::vector<TargetObstacle> target_obstacles;
 };
 
+struct RSSLongitudinalInfo
+{
+  RSSLongitudinalInfo(
+    const double arg_max_accel, const double arg_min_accel, const double arg_max_jerk,
+    const double arg_min_jerk, const double arg_min_object_accel, const double arg_t_idling)
+  : max_accel(arg_max_accel),
+    min_accel(arg_min_accel),
+    max_jerk(arg_max_jerk),
+    min_jerk(arg_min_jerk),
+    min_object_accel(arg_min_object_accel),
+    t_idling(arg_t_idling)
+  {
+  }
+  double max_accel;
+  double min_accel;
+  double max_jerk;
+  double min_jerk;
+  double min_object_accel;
+  double t_idling;
+};
+
 #endif  // OBSTACLE_VELOCITY_PLANNER__COMMON_STRUCTS_HPP_

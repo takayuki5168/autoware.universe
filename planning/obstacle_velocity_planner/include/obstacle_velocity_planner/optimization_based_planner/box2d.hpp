@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef OBSTACLE_VELOCITY_PLANNER__BOX2D_HPP_
-#define OBSTACLE_VELOCITY_PLANNER__BOX2D_HPP_
+#ifndef OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__BOX2D_HPP_
+#define OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__BOX2D_HPP_
 
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose.hpp>
@@ -132,4 +132,4 @@ private:
   double min_y_ = std::numeric_limits<double>::max();
 };
 
-#endif  // OBSTACLE_VELOCITY_PLANNER__BOX2D_HPP_
+#endif  // OBSTACLE_VELOCITY_PLANNER__OPTIMIZATION_BASED_PLANNER__BOX2D_HPP_

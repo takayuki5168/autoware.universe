@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "obstacle_velocity_planner/velocity_optimizer.hpp"
+#include "obstacle_velocity_planner/optimization_based_planner/velocity_optimizer.hpp"
 
 #include <eigen3/Eigen/Core>
 
