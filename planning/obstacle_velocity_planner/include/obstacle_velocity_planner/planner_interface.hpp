@@ -28,6 +28,7 @@
 #include <lanelet2_traffic_rules/TrafficRulesFactory.h>
 
 #include <memory>
+#include <vector>
 
 class PlannerInterface
 {
@@ -52,6 +53,8 @@ public:
   {
     return {};
   }
+
+  virtual void updateParam(const std::vector<rclcpp::Parameter> & parameters) {}
 
   // TODO(shimizu) remove this function
   void setMaps(

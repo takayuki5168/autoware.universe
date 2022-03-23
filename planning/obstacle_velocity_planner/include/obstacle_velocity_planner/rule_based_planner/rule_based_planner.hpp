@@ -21,6 +21,7 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 
 #include <memory>
+#include <vector>
 
 class RuleBasedPlanner : public PlannerInterface
 {
@@ -56,6 +57,8 @@ public:
 
   boost::optional<double> calcVelocityLimit(
     const ObstacleVelocityPlannerData & planner_data) override;
+
+  void updateParam(const std::vector<rclcpp::Parameter> & parameters) override;
 
 private:
   std::unique_ptr<PIDController> pid_controller_;

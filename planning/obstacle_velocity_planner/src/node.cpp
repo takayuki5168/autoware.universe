@@ -170,6 +170,21 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   } else {
     std::logic_error("Designated method is not supported.");
   }
+
+  // set parameter callback
+  set_param_res_ = this->add_on_set_parameters_callback(
+    std::bind(&ObstacleVelocityPlanner::paramCallback, this, std::placeholders::_1));
+}
+
+rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlanner::paramCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  planner_ptr_->updateParam(parameters);
+
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "success";
+  return result;
 }
 
 void ObstacleVelocityPlanner::mapCallback(

@@ -43,10 +43,6 @@
 #include <mutex>
 #include <vector>
 
-namespace bg = boost::geometry;
-using tier4_autoware_utils::Point2d;
-using tier4_autoware_utils::Polygon2d;
-
 class ObstacleVelocityPlanner : public rclcpp::Node
 {
 public:
@@ -56,6 +52,9 @@ private:
   enum class PlanningMethod { OPTIMIZATION_BASE, RULE_BASE };
 
   // Callback Functions
+  rcl_interfaces::msg::SetParametersResult paramCallback(
+    const std::vector<rclcpp::Parameter> & parameters);
+
   void mapCallback(const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg);
 
   void objectsCallback(const autoware_auto_perception_msgs::msg::PredictedObjects::SharedPtr msg);
@@ -94,6 +93,8 @@ private:
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr external_vel_limit_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
+
+  OnSetParametersCallbackHandle::SharedPtr set_param_res_;
 
   // Self Pose Listener
   tier4_autoware_utils::SelfPoseListener self_pose_listener_;

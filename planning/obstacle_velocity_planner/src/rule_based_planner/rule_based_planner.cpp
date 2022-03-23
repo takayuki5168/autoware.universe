@@ -100,6 +100,7 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
           return 0.0;
         }
 
+        // TODO(murooka) strong_min_accel
         const double time_to_stop_with_acc_limit = -planner_data.current_vel / strong_min_accel_;
         return planner_data.current_vel * time_to_stop_with_acc_limit + strong_min_accel_ +
                std::pow(time_to_stop_with_acc_limit, 2);
@@ -115,8 +116,8 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
       // calculate distance between ego and obstacle based on RSS
       const double rss_dist =
         calcRSSDistance(planner_data.current_vel, obstacle.velocity, safe_distance_margin_);
-      std::cerr << planner_data.current_vel << " " << obstacle.velocity << " " << rss_dist
-                << std::endl;
+      // std::cerr << planner_data.current_vel << " " << obstacle.velocity << " " << rss_dist
+      // << std::endl;
       const double rss_dist_with_vehicle_offset =
         rss_dist + vehicle_info_.max_longitudinal_offset_m + obstacle.shape.dimensions.x / 2.0;
 
@@ -214,4 +215,18 @@ boost::optional<double> RuleBasedPlanner::calcVelocityLimit(
   const ObstacleVelocityPlannerData & planner_data)
 {
   return vel_limit_;
+}
+
+void RuleBasedPlanner::updateParam(const std::vector<rclcpp::Parameter> & parameters)
+{
+  double kp = pid_controller_->getKp();
+  double ki = pid_controller_->getKi();
+  double kd = pid_controller_->getKd();
+
+  tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kp", kp);
+  tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.ki", ki);
+  tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kd", kd);
+  std::cerr << kp << " " << ki << " " << kd << std::endl;
+
+  pid_controller_->updateParam(kp, ki, kd);
 }
