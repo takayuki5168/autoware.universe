@@ -62,9 +62,23 @@ Polygon2d convertObstacleToPolygon(
                  .position);
   } else if (shape.type == autoware_auto_perception_msgs::msg::Shape::CYLINDER) {
     // TODO(murooka)
+    const double radius = shape.dimensions.x / 2.0;
+    appendPointToPolygon(
+      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, radius, 0.0).position);
+    appendPointToPolygon(
+      polygon, tier4_autoware_utils::calcOffsetPose(pose, -radius, radius, 0.0).position);
+    appendPointToPolygon(
+      polygon, tier4_autoware_utils::calcOffsetPose(pose, -radius, -radius, 0.0).position);
+    appendPointToPolygon(
+      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, -radius, 0.0).position);
+    appendPointToPolygon(
+      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, radius, 0.0).position);
   } else if (shape.type == autoware_auto_perception_msgs::msg::Shape::POLYGON) {
     for (const auto point : shape.footprint.points) {
       appendPointToPolygon(polygon, point);
+    }
+    if (shape.footprint.points.size() > 0) {
+      appendPointToPolygon(polygon, shape.footprint.points.front());
     }
   } else {
     throw std::logic_error("The shape type is not supported in obstacle_velocity_planner.");

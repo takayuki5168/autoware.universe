@@ -85,7 +85,10 @@ visualization_msgs::msg::MarkerArray getObjectMarkerArray(
 }  // namespace
 
 ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options)
-: Node("obstacle_velocity_planner", node_options), self_pose_listener_(this), previous_acc_(0.0)
+: Node("obstacle_velocity_planner", node_options),
+  self_pose_listener_(this),
+  previous_acc_(0.0),
+  pid_controller_(PIDController(0.0005, 0.0, 0.8))  // TODO(murooka) use rosparam
 {
   using std::placeholders::_1;
 
@@ -105,13 +108,17 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   sub_map_ = this->create_subscription<autoware_auto_mapping_msgs::msg::HADMapBin>(
     "/map/vector_map", rclcpp::QoS{1}.transient_local(),
     std::bind(&ObstacleVelocityPlanner::mapCallback, this, std::placeholders::_1));
+  /*
   sub_external_velocity_limit_ = create_subscription<tier4_planning_msgs::msg::VelocityLimit>(
     "/planning/scenario_planning/max_velocity", 1,
     std::bind(&ObstacleVelocityPlanner::onExternalVelocityLimit, this, _1));
+  */
 
   // Publisher
   trajectory_pub_ =
     create_publisher<autoware_auto_planning_msgs::msg::Trajectory>("~/output/trajectory", 1);
+  external_vel_limit_pub_ = create_publisher<tier4_planning_msgs::msg::VelocityLimit>(
+    "/planning/scenario_planning/max_velocity", 1);
   optimized_sv_pub_ =
     create_publisher<autoware_auto_planning_msgs::msg::Trajectory>("~/optimized_sv_trajectory", 1);
   optimized_st_graph_pub_ =
@@ -124,6 +131,8 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/marker", 1);
   debug_wall_marker_pub_ =
     create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
+  debug_rss_wall_marker_pub_ =
+    create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/rss_wall_marker", 1);
 
   // Obstacle
   in_objects_ptr_ = std::make_unique<autoware_auto_perception_msgs::msg::PredictedObjects>();
@@ -211,11 +220,13 @@ void ObstacleVelocityPlanner::smoothedTrajectoryCallback(
   smoothed_trajectory_ptr_ = msg;
 }
 
+/*
 void ObstacleVelocityPlanner::onExternalVelocityLimit(
   const tier4_planning_msgs::msg::VelocityLimit::ConstSharedPtr msg)
 {
   external_velocity_limit_ = msg->max_velocity;
 }
+*/
 
 void ObstacleVelocityPlanner::trajectoryCallback(
   const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg)
@@ -237,12 +248,21 @@ void ObstacleVelocityPlanner::trajectoryCallback(
   planner_data.traj = *msg;
   planner_data.current_pose = self_pose_listener_.getCurrentPose()->pose;
   planner_data.current_vel = current_twist_ptr_->twist.linear.x;
-  planner_data.external_velocity_limit = external_velocity_limit_;
+  // planner_data.external_velocity_limit = external_velocity_limit_;
   planner_data.target_obstacles = filterObstacles(
     obstacles, planner_data.traj, planner_data.current_pose, planner_data.current_vel);
 
   // generate Trajectory
-  const auto output = generateTrajectory(planner_data);
+  const Method method = Method::RULE_BASE;
+  const auto output = [&]() {
+    if (method == Method::OPTIMIZATION_BASE) {
+      return generateOptimizationTrajectory(planner_data);
+    } else if (method == Method::RULE_BASE) {
+      return generateRuleBaseTrajectory(planner_data);
+    }
+
+    std::logic_error("Designated method is not supported.");
+  }();
 
   // Publish trajectory
   prev_output_ = output;
@@ -306,7 +326,6 @@ std::vector<ObstacleVelocityPlanner::TargetObstacle> ObstacleVelocityPlanner::fi
 
             const double dist_to_obstacle_getting_out = tier4_autoware_utils::calcSignedArcLength(
               traj.points, obstacle.pose.position, obstacle_getting_out_idx.get());
-            std::cerr << dist_to_obstacle_getting_out << std::endl;
             return dist_to_obstacle_getting_out / obstacle.velocity;
           }();
 
@@ -341,12 +360,14 @@ std::vector<ObstacleVelocityPlanner::TargetObstacle> ObstacleVelocityPlanner::fi
 
     target_obstacles.push_back(obstacle);
   }
+  RCLCPP_ERROR_STREAM(get_logger(), target_obstacles.size());
 
+  // TODO(murooka) change shape of markers based on its shape
   // publish filtered obstacles
   visualization_msgs::msg::MarkerArray object_msg;
   for (size_t i = 0; i < target_obstacles.size(); ++i) {
     const auto marker =
-      getObjectMarkerArray(target_obstacles.at(i).pose, i, "objects_to_follow", 0.7, 0.7, 0.0);
+      getObjectMarkerArray(target_obstacles.at(i).pose, i, "target_objects", 0.7, 0.7, 0.0);
     tier4_autoware_utils::appendMarkerArray(marker, &object_msg);
   }
   debug_marker_pub_->publish(object_msg);
@@ -354,7 +375,8 @@ std::vector<ObstacleVelocityPlanner::TargetObstacle> ObstacleVelocityPlanner::fi
   return target_obstacles;
 }
 
-autoware_auto_planning_msgs::msg::Trajectory ObstacleVelocityPlanner::generateTrajectory(
+autoware_auto_planning_msgs::msg::Trajectory
+ObstacleVelocityPlanner::generateOptimizationTrajectory(
   const ObstacleVelocityPlannerData & planner_data)
 {
   // Create Time Vector defined by resampling time interval
@@ -387,7 +409,7 @@ autoware_auto_planning_msgs::msg::Trajectory ObstacleVelocityPlanner::generateTr
   for (const auto & point : planner_data.traj.points) {
     v_max = std::max(v_max, static_cast<double>(point.longitudinal_velocity_mps));
   }
-  v_max = std::min(v_max, planner_data.external_velocity_limit);
+  // v_max = std::min(v_max, planner_data.external_velocity_limit);
 
   // Get Current Velocity
   double v0;
@@ -1300,30 +1322,29 @@ boost::optional<double> ObstacleVelocityPlanner::getDistanceToCollisionPoint(
 }
 
 boost::optional<geometry_msgs::msg::Pose> ObstacleVelocityPlanner::calcForwardPose(
-  const TrajectoryData & ego_traj_data, const geometry_msgs::msg::Point & point,
-  const double target_length)
+  const autoware_auto_planning_msgs::msg::Trajectory & traj,
+  const geometry_msgs::msg::Point & point, const double target_length)
 {
-  const size_t nearest_idx =
-    tier4_autoware_utils::findNearestIndex(ego_traj_data.traj.points, point);
+  const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj.points, point);
 
   size_t search_idx = nearest_idx;
   double length_to_search_idx;
-  for (; search_idx < ego_traj_data.traj.points.size(); ++search_idx) {
+  for (; search_idx < traj.points.size(); ++search_idx) {
     length_to_search_idx =
-      tier4_autoware_utils::calcSignedArcLength(ego_traj_data.traj.points, point, search_idx);
+      tier4_autoware_utils::calcSignedArcLength(traj.points, point, search_idx);
     if (length_to_search_idx > target_length) {
       break;
-    } else if (search_idx == ego_traj_data.traj.points.size() - 1) {
+    } else if (search_idx == traj.points.size() - 1) {
       return {};
     }
   }
 
-  if (search_idx == 0 && !ego_traj_data.traj.points.empty()) {
-    return ego_traj_data.traj.points.at(0).pose;
+  if (search_idx == 0 && !traj.points.empty()) {
+    return traj.points.at(0).pose;
   }
 
-  const auto & pre_pose = ego_traj_data.traj.points.at(search_idx - 1).pose;
-  const auto & next_pose = ego_traj_data.traj.points.at(search_idx).pose;
+  const auto & pre_pose = traj.points.at(search_idx - 1).pose;
+  const auto & next_pose = traj.points.at(search_idx).pose;
 
   geometry_msgs::msg::Pose target_pose;
 
@@ -1345,6 +1366,13 @@ boost::optional<geometry_msgs::msg::Pose> ObstacleVelocityPlanner::calcForwardPo
     tier4_autoware_utils::createQuaternionFromYaw(pre_yaw + (next_yaw - pre_yaw) * lerp_ratio);
 
   return target_pose;
+}
+
+boost::optional<geometry_msgs::msg::Pose> ObstacleVelocityPlanner::calcForwardPose(
+  const TrajectoryData & ego_traj_data, const geometry_msgs::msg::Point & point,
+  const double target_length)
+{
+  return calcForwardPose(ego_traj_data.traj, point, target_length);
 }
 
 double ObstacleVelocityPlanner::getObjectLongitudinalPosition(
@@ -1704,6 +1732,124 @@ void ObstacleVelocityPlanner::publishDebugTrajectory(
     optimized_st_graph.points.at(i).pose.position.y = bound_t;
   }
   optimized_st_graph_pub_->publish(optimized_st_graph);
+}
+
+autoware_auto_planning_msgs::msg::Trajectory ObstacleVelocityPlanner::generateRuleBaseTrajectory(
+  const ObstacleVelocityPlannerData & planner_data)
+{
+  auto output_traj = planner_data.traj;
+  tier4_planning_msgs::msg::VelocityLimit vel_limit_msg;
+  vel_limit_msg.max_velocity = 12.0;  // TODO(murooka)
+
+  // TODO(murooka) use ros param
+  constexpr double max_obj_velocity_for_stop = 1.0;
+  constexpr double safe_distance_margin = 2.0;
+
+  boost::optional<double> min_dist_to_rss_wall;
+  // boost::optional<double> min_marker_pose;
+  for (const auto & obstacle : planner_data.target_obstacles) {
+    if (std::abs(obstacle.velocity) < max_obj_velocity_for_stop) {  // stop
+      std::cerr << "PO" << std::endl;
+
+      // calculate distance to stop
+      const double distance_to_stop_for_obstacle = tier4_autoware_utils::calcSignedArcLength(
+        output_traj.points, planner_data.current_pose.position, obstacle.pose.position);
+      const double distance_to_stop_with_acc_limit = [&]() {
+        constexpr double epsilon = 1e-6;
+        if (planner_data.current_vel < epsilon) {
+          return 0.0;
+        }
+
+        const double time_to_stop_with_acc_limit = -planner_data.current_vel / min_accel_;
+        return planner_data.current_vel * time_to_stop_with_acc_limit + min_accel_ +
+               std::pow(time_to_stop_with_acc_limit, 2);
+      }();
+
+      const double distance_to_stop =
+        std::max(distance_to_stop_for_obstacle, distance_to_stop_with_acc_limit);
+      const auto marker_pose =
+        calcForwardPose(planner_data.traj, planner_data.current_pose.position, distance_to_stop);
+
+      // TODO(murooka) insert zero velocity with interpolation
+      // output_traj.points.at(obj_idx).longitudinal_velocity_mps = 0.0;
+
+      // create wall marker
+      if (marker_pose) {
+        visualization_msgs::msg::MarkerArray wall_msg;
+        const auto markers = tier4_autoware_utils::createStopVirtualWallMarker(
+          marker_pose.get(), "obstacle to stop", get_clock()->now(), 0);
+        tier4_autoware_utils::appendMarkerArray(markers, &wall_msg);
+
+        // publish wall marker
+        debug_wall_marker_pub_->publish(wall_msg);
+      }
+    } else {  // adaptive cruise
+      // calculate distance between ego and obstacle based on RSS
+      const double rss_dist =
+        planner_data.current_vel * t_idling_ + 0.5 * max_accel_ * std::pow(t_idling_, 2) +
+        std::pow(planner_data.current_vel + max_accel_ * t_idling_, 2) * 0.5 /
+          std::abs(min_accel_) -
+        std::pow(obstacle.velocity, 2) * 0.5 / std::abs(min_object_accel_) + safe_distance_margin;
+      const double rss_dist_with_vehicle_offset =
+        rss_dist + vehicle_info_.max_longitudinal_offset_m + obstacle.shape.dimensions.x / 2.0;
+
+      // calculate error distance
+      const double actual_dist = tier4_autoware_utils::calcSignedArcLength(
+        output_traj.points, planner_data.current_pose.position, obstacle.pose.position);
+      const double error_dist = actual_dist - rss_dist_with_vehicle_offset;
+      if (error_dist > 0.0) {
+        std::cerr << "error_dist is positive" << std::endl;
+        continue;
+      }
+
+      // calculate target velocity with acceleration limit by PID controller
+      const double diff_vel = pid_controller_.calc(error_dist);
+      const double prev_vel = prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
+      const double target_vel_with_acc_limit =
+        prev_vel + std::max(std::min(diff_vel, max_accel_), min_accel_);
+      std::cerr << error_dist << " " << error_dist * 0.001 << " " << target_vel_with_acc_limit
+                << std::endl;
+
+      prev_target_vel_ = target_vel_with_acc_limit;
+
+      // set velocity limit
+      if (target_vel_with_acc_limit < vel_limit_msg.max_velocity) {
+        vel_limit_msg.max_velocity = target_vel_with_acc_limit;
+      }
+
+      // calculate rss wall dist for visualization
+      const double ego_obj_length = tier4_autoware_utils::calcSignedArcLength(
+        planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
+      const double dist_to_rss_wall =
+        ego_obj_length - (rss_dist - vehicle_info_.max_longitudinal_offset_m);
+      if (!min_dist_to_rss_wall || dist_to_rss_wall < min_dist_to_rss_wall.get()) {
+        min_dist_to_rss_wall = dist_to_rss_wall;
+      }
+    }
+  }
+
+  if (min_dist_to_rss_wall) {
+    // publish rss wall marker for visualization
+    const auto marker_pose = calcForwardPose(
+      planner_data.traj, planner_data.current_pose.position, min_dist_to_rss_wall.get());
+    if (marker_pose) {
+      visualization_msgs::msg::MarkerArray rss_wall_msg;
+
+      const auto markers = tier4_autoware_utils::createSlowDownVirtualWallMarker(
+        marker_pose.get(), "rss distance", get_clock()->now(), 0);
+      tier4_autoware_utils::appendMarkerArray(markers, &rss_wall_msg);
+
+      debug_rss_wall_marker_pub_->publish(rss_wall_msg);
+    }
+  } else {
+    // reset previous target velocity if adaptive cruise is not enabled
+    prev_target_vel_ = {};
+  }
+
+  // publish velocity limit
+  external_vel_limit_pub_->publish(vel_limit_msg);
+
+  return output_traj;
 }
 
 #include <rclcpp_components/register_node_macro.hpp>

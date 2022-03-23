@@ -18,6 +18,7 @@
 #include "obstacle_velocity_planner/box2d.hpp"
 #include "obstacle_velocity_planner/common/s_boundary.hpp"
 #include "obstacle_velocity_planner/common/st_point.hpp"
+#include "obstacle_velocity_planner/pid_controller.hpp"
 #include "obstacle_velocity_planner/velocity_optimizer.hpp"
 
 #include <lanelet2_extension/utility/message_conversion.hpp>
@@ -78,6 +79,7 @@ public:
   explicit ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options);
 
 private:
+  enum class Method { OPTIMIZATION_BASE, RULE_BASE };
   struct TargetObstacle
   {
     static std::vector<TargetObstacle> convertToTargetObstacles(
@@ -127,7 +129,7 @@ private:
     autoware_auto_planning_msgs::msg::Trajectory traj;
     geometry_msgs::msg::Pose current_pose;
     double current_vel;
-    double external_velocity_limit;
+    // double external_velocity_limit;
     std::vector<TargetObstacle> target_obstacles;
   };
 
@@ -151,7 +153,7 @@ private:
     const autoware_auto_planning_msgs::msg::Trajectory & traj,
     const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
-  autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
+  autoware_auto_planning_msgs::msg::Trajectory generateOptimizationTrajectory(
     const ObstacleVelocityPlannerData & planner_data);
 
   std::vector<double> createTimeVector();
@@ -225,6 +227,10 @@ private:
     const rclcpp::Time & obj_base_time, const rclcpp::Time & current_time);
 
   boost::optional<geometry_msgs::msg::Pose> calcForwardPose(
+    const autoware_auto_planning_msgs::msg::Trajectory & traj,
+    const geometry_msgs::msg::Point & point, const double target_length);
+
+  boost::optional<geometry_msgs::msg::Pose> calcForwardPose(
     const TrajectoryData & ego_traj_data, const geometry_msgs::msg::Point & point,
     const double target_length);
 
@@ -250,6 +256,9 @@ private:
     const std::vector<double> & time_vec, const SBoundaries & s_boundaries,
     const VelocityOptimizer::OptimizationResult & opt_result);
 
+  autoware_auto_planning_msgs::msg::Trajectory generateRuleBaseTrajectory(
+    const ObstacleVelocityPlannerData & planner_data);
+
   // ROS related members
   // Subscriber
   rclcpp::Subscription<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_sub_;
@@ -259,11 +268,12 @@ private:
     objects_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<autoware_auto_mapping_msgs::msg::HADMapBin>::SharedPtr sub_map_;
-  rclcpp::Subscription<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr
-    sub_external_velocity_limit_;  //!< @brief subscriber for external velocity limit
+  // rclcpp::Subscription<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr
+  //   sub_external_velocity_limit_;  //!< @brief subscriber for external velocity limit
 
   // Publisher
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_pub_;
+  rclcpp::Publisher<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr external_vel_limit_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr boundary_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr optimized_sv_pub_;
   rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr
@@ -272,6 +282,7 @@ private:
   rclcpp::Publisher<tier4_debug_msgs::msg::Float32Stamped>::SharedPtr debug_calculation_time_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
 
   // Calculation time watcher
   tier4_autoware_utils::StopWatch<std::chrono::milliseconds> stop_watch_;
@@ -338,6 +349,10 @@ private:
   double engage_acceleration_;
   double engage_exit_ratio_;
   double stop_dist_to_prohibit_engage_;
+
+  // Rule base
+  boost::optional<double> prev_target_vel_;
+  PIDController pid_controller_;
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__NODE_HPP_
