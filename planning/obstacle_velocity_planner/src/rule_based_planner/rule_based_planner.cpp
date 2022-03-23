@@ -82,20 +82,15 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
   const ObstacleVelocityPlannerData & planner_data)
 {
   auto output_traj = planner_data.traj;
-  vel_limit_ = {};
+  vel_limit_ = 16.7;  // 60 [km/h]
 
   const size_t ego_idx =
     tier4_autoware_utils::findNearestIndex(output_traj.points, planner_data.current_pose.position);
 
-  // TODO(murooka) use ros param
-  constexpr double max_obj_velocity_for_stop = 1.0;
-  constexpr double safe_distance_margin = 4.0;
-
-  // boost::optional<double> min_dist_to_rss_wall;
   boost::optional<double> min_dist_to_stop;
   boost::optional<double> min_dist_to_slow_down;
   for (const auto & obstacle : planner_data.target_obstacles) {
-    if (std::abs(obstacle.velocity) < max_obj_velocity_for_stop) {  // stop
+    if (std::abs(obstacle.velocity) < max_obj_velocity_for_stop_) {  // stop
       // calculate distance to stop
       const double distance_to_stop_for_obstacle = tier4_autoware_utils::calcSignedArcLength(
         output_traj.points, planner_data.current_pose.position, obstacle.pose.position);
@@ -105,22 +100,21 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
           return 0.0;
         }
 
-        constexpr double strong_min_accel = -2.0;  // TODO(murooka)
-        const double time_to_stop_with_acc_limit = -planner_data.current_vel / strong_min_accel;
-        return planner_data.current_vel * time_to_stop_with_acc_limit + strong_min_accel +
+        const double time_to_stop_with_acc_limit = -planner_data.current_vel / strong_min_accel_;
+        return planner_data.current_vel * time_to_stop_with_acc_limit + strong_min_accel_ +
                std::pow(time_to_stop_with_acc_limit, 2);
       }();
 
       const double distance_to_stop =
         std::max(distance_to_stop_for_obstacle, distance_to_stop_with_acc_limit) -
-        safe_distance_margin;
+        safe_distance_margin_;
       if (!min_dist_to_stop || distance_to_stop < min_dist_to_stop.get()) {
         min_dist_to_stop = distance_to_stop;
       }
     } else {  // adaptive cruise
       // calculate distance between ego and obstacle based on RSS
       const double rss_dist =
-        calcRSSDistance(planner_data.current_vel, obstacle.velocity, safe_distance_margin);
+        calcRSSDistance(planner_data.current_vel, obstacle.velocity, safe_distance_margin_);
       std::cerr << planner_data.current_vel << " " << obstacle.velocity << " " << rss_dist
                 << std::endl;
       const double rss_dist_with_vehicle_offset =
@@ -178,7 +172,7 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
 
     // adaptive cruise TODO
     // calculate target velocity with acceleration limit by PID controller
-    const double diff_vel = pid_controller_.calc(min_dist_to_slow_down.get());
+    const double diff_vel = pid_controller_->calc(min_dist_to_slow_down.get());
     const double prev_vel = prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
     const double target_vel_with_acc_limit =
       prev_vel + std::max(

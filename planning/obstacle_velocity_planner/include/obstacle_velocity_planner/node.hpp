@@ -101,6 +101,13 @@ private:
   // Vehicle Parameters
   vehicle_info_util::VehicleInfo vehicle_info_;
 
+  // Obstacle filtering
+  double margin_between_traj_and_obstacle_;
+  double min_obstacle_velocity_;
+  double margin_for_collision_time_;
+  double max_ego_obj_overlap_time_;
+  double max_prediction_time_for_collision_check_;
+
   // Mutex
   std::mutex mutex_;
 

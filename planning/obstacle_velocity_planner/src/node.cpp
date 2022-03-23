@@ -139,13 +139,24 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   // Vehicle Parameters
   vehicle_info_ = vehicle_info_util::VehicleInfoUtil(*this).getVehicleInfo();
 
-  // Parameters
-  const double max_accel = declare_parameter("max_accel", 1.0);
-  const double min_accel = declare_parameter("min_accel", -1.0);
-  const double max_jerk = declare_parameter("max_jerk", 1.0);
-  const double min_jerk = declare_parameter("min_jerk", -1.0);
-  const double min_object_accel = declare_parameter("min_object_accel", -3.0);
-  const double t_idling = declare_parameter("t_idling", 2.0);
+  // Common parameters
+  const double max_accel = declare_parameter("common.max_accel", 1.0);
+  const double min_accel = declare_parameter("common.min_accel", -1.0);
+  const double max_jerk = declare_parameter("common.max_jerk", 1.0);
+  const double min_jerk = declare_parameter("common.min_jerk", -1.0);
+  const double min_object_accel = declare_parameter("common.min_object_accel", -3.0);
+  const double t_idling = declare_parameter("common.t_idling", 2.0);
+
+  // Obstacle filtering parameters
+  margin_between_traj_and_obstacle_ =
+    declare_parameter<double>("obstacle_filtering.margin_between_traj_and_obstacle");
+  min_obstacle_velocity_ = declare_parameter<double>("obstacle_filtering.min_obstacle_velocity");
+  margin_for_collision_time_ =
+    declare_parameter<double>("obstacle_filtering.margin_for_collision_time");
+  max_ego_obj_overlap_time_ =
+    declare_parameter<double>("obstacle_filtering.max_ego_obj_overlap_time");
+  max_prediction_time_for_collision_check_ =
+    declare_parameter<double>("obstacle_filtering.max_prediction_time_for_collision_check");
 
   // Wait for first self pose
   self_pose_listener_.waitForFirstPose();
@@ -238,7 +249,6 @@ void ObstacleVelocityPlanner::trajectoryCallback(
   if (vel_limit) {
     tier4_planning_msgs::msg::VelocityLimit vel_limit_msg;
     vel_limit_msg.max_velocity = vel_limit.get();
-    std::cerr << vel_limit.get() << std::endl;
     external_vel_limit_pub_->publish(vel_limit_msg);
   }
 
@@ -256,19 +266,12 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
 {
   std::vector<TargetObstacle> target_obstacles;
 
-  // TODO(murooka) parametrise these parameters
-  constexpr double margin_between_traj_and_obstacle = 0.3;
-  constexpr double min_obstacle_velocity = 3.0;  // 10.8 [km/h]
-  constexpr double margin_for_collision_time = 3.0;
-  constexpr double max_ego_obj_overlap_time = 1.0;
-  constexpr double max_prediction_time_for_collision_check = 20.0;
-
   const auto traj_polygons = polygon_utils::createOneStepPolygons(traj, vehicle_info_);
 
   for (const auto & obstacle : obstacles) {
     const auto first_within_idx = polygon_utils::getFirstCollisionIndex(
       traj_polygons, polygon_utils::convertObstacleToPolygon(obstacle.pose, obstacle.shape),
-      margin_between_traj_and_obstacle);
+      margin_between_traj_and_obstacle_);
 
     if (first_within_idx) {  // obsacles inside the trajectory
       if (
@@ -282,7 +285,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
           autoware_auto_perception_msgs::msg::ObjectClassification::MOTORCYCLE) {  // vehicle
                                                                                    // obstacle
 
-        if (std::abs(obstacle.velocity) > min_obstacle_velocity) {  // running obstacle
+        if (std::abs(obstacle.velocity) > min_obstacle_velocity_) {  // running obstacle
           const double time_to_collision = [&]() {
             // TODO(murooka) consider obstacle width/length the same as
             // vehicle_info_.max_longitudinal_offset_m
@@ -296,7 +299,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
           const double time_to_obstacle_getting_out = [&]() {
             const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
               traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape, first_within_idx.get(),
-              margin_between_traj_and_obstacle);
+              margin_between_traj_and_obstacle_);
             if (!obstacle_getting_out_idx) {
               return std::numeric_limits<double>::max();
             }
@@ -313,7 +316,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
                             << time_to_obstacle_getting_out);
           */
 
-          if (time_to_collision > time_to_obstacle_getting_out + margin_for_collision_time) {
+          if (time_to_collision > time_to_obstacle_getting_out + margin_for_collision_time_) {
             RCLCPP_INFO_EXPRESSION(
               get_logger(), true, "Ignore obstacles since it will not collide with the ego.");
             // False Condition 1. Ignore vehicle obstacles inside the trajectory, which is running
@@ -328,8 +331,8 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
               // std::max(shape.dimensions.x, shape.dimensions.y) / 2.0;
       const bool will_collide = polygon_utils::willCollideWithSurroundObstacle(
         traj, traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape,
-        margin_between_traj_and_obstacle, max_dist, max_ego_obj_overlap_time,
-        max_prediction_time_for_collision_check);
+        margin_between_traj_and_obstacle_, max_dist, max_ego_obj_overlap_time_,
+        max_prediction_time_for_collision_check_);
       if (!will_collide) {
         // False Condition 2. Ignore vehicle obstacles outside the trajectory, whose predicted path
         // overlaps the ego trajectory in a certain time.

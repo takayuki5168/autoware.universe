@@ -20,6 +20,8 @@
 
 #include "visualization_msgs/msg/marker_array.hpp"
 
+#include <memory>
+
 class RuleBasedPlanner : public PlannerInterface
 {
 public:
@@ -28,9 +30,21 @@ public:
     const double min_jerk, const double min_object_accel, const double t_idling,
     const vehicle_info_util::VehicleInfo & vehicle_info)
   : PlannerInterface(
-      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info),
-    pid_controller_(PIDController(0.003, 0.0, 0.01))  // TODO(murooka) use rosparam
+      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info)
   {
+    // pid controller
+    const double kp = node.declare_parameter<double>("rule_based_planner.kp");
+    const double ki = node.declare_parameter<double>("rule_based_planner.ki");
+    const double kd = node.declare_parameter<double>("rule_based_planner.kd");
+    pid_controller_ = std::make_unique<PIDController>(kp, ki, kd);
+
+    max_obj_velocity_for_stop_ =
+      node.declare_parameter<double>("rule_based_planner.max_obj_velocity_for_stop");
+    safe_distance_margin_ =
+      node.declare_parameter<double>("rule_based_planner.safe_distance_margin");
+    strong_min_accel_ = node.declare_parameter<double>("rule_based_planner.strong_min_accel");
+
+    // Publisher
     debug_wall_marker_pub_ =
       node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
     debug_rss_wall_marker_pub_ =
@@ -44,15 +58,21 @@ public:
     const ObstacleVelocityPlannerData & planner_data) override;
 
 private:
-  PIDController pid_controller_;
+  std::unique_ptr<PIDController> pid_controller_;
 
   // Publisher
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
 
+  // Velocity limit for slow down
   boost::optional<double> vel_limit_;
 
   boost::optional<double> prev_target_vel_;
+
+  // Parameter
+  double max_obj_velocity_for_stop_;
+  double safe_distance_margin_;
+  double strong_min_accel_;
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__RULE_BASED_PLANNER__RULE_BASED_PLANNER_HPP_
