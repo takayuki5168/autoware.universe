@@ -31,6 +31,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <tier4_debug_msgs/msg/float32_stamped.hpp>
 #include <tier4_planning_msgs/msg/velocity_limit.hpp>
+#include <tier4_planning_msgs/msg/velocity_limit_clear_command.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <boost/optional.hpp>
@@ -42,6 +43,18 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+
+using autoware_auto_perception_msgs::msg::ObjectClassification;
+using autoware_auto_perception_msgs::msg::PredictedObject;
+using autoware_auto_perception_msgs::msg::PredictedObjects;
+using autoware_auto_perception_msgs::msg::PredictedPath;
+using autoware_auto_planning_msgs::msg::Trajectory;
+using autoware_auto_planning_msgs::msg::TrajectoryPoint;
+using tier4_planning_msgs::msg::VelocityLimit;
+using tier4_planning_msgs::msg::VelocityLimitClearCommand;
+using nav_msgs::msg::Odometry;
+using autoware_auto_mapping_msgs::msg::HADMapBin;
+using vehicle_info_util::VehicleInfo;
 
 class ObstacleVelocityPlanner : public rclcpp::Node
 {
@@ -55,43 +68,44 @@ private:
   rcl_interfaces::msg::SetParametersResult paramCallback(
     const std::vector<rclcpp::Parameter> & parameters);
 
-  void mapCallback(const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg);
+  void mapCallback(const HADMapBin::ConstSharedPtr msg);
 
-  void objectsCallback(const autoware_auto_perception_msgs::msg::PredictedObjects::SharedPtr msg);
+  void objectsCallback(const PredictedObjects::SharedPtr msg);
 
-  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr);
+  void odomCallback(const Odometry::SharedPtr);
 
-  void trajectoryCallback(const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg);
+  void trajectoryCallback(const Trajectory::SharedPtr msg);
 
   void smoothedTrajectoryCallback(
-    const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg);
+    const Trajectory::SharedPtr msg);
 
-  void onExternalVelocityLimit(const tier4_planning_msgs::msg::VelocityLimit::ConstSharedPtr msg);
+  // void onExternalVelocityLimit(const VelocityLimit::ConstSharedPtr msg);
 
   // Member Functions
   std::vector<TargetObstacle> filterObstacles(
     const std::vector<TargetObstacle> & obstacles,
-    const autoware_auto_planning_msgs::msg::Trajectory & traj,
+    const Trajectory & traj,
     const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
-  autoware_auto_planning_msgs::msg::Trajectory generateRuleBaseTrajectory(
+  Trajectory generateRuleBaseTrajectory(
     const ObstacleVelocityPlannerData & planner_data);
 
   // ROS related members
   // Subscriber
-  rclcpp::Subscription<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_sub_;
-  rclcpp::Subscription<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr
+  rclcpp::Subscription<Trajectory>::SharedPtr trajectory_sub_;
+  rclcpp::Subscription<Trajectory>::SharedPtr
     smoothed_trajectory_sub_;
-  rclcpp::Subscription<autoware_auto_perception_msgs::msg::PredictedObjects>::SharedPtr
+  rclcpp::Subscription<PredictedObjects>::SharedPtr
     objects_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<autoware_auto_mapping_msgs::msg::HADMapBin>::SharedPtr sub_map_;
-  // rclcpp::Subscription<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr
+  rclcpp::Subscription<Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<HADMapBin>::SharedPtr sub_map_;
+  // rclcpp::Subscription<VelocityLimit>::SharedPtr
   //   sub_external_velocity_limit_;  //!< @brief subscriber for external velocity limit
 
   // Publisher
-  rclcpp::Publisher<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_pub_;
-  rclcpp::Publisher<tier4_planning_msgs::msg::VelocityLimit>::SharedPtr external_vel_limit_pub_;
+  rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;
+  rclcpp::Publisher<VelocityLimit>::SharedPtr external_vel_limit_pub_;
+  rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr external_clear_vel_limit_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
 
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
@@ -100,7 +114,7 @@ private:
   tier4_autoware_utils::SelfPoseListener self_pose_listener_;
 
   // Vehicle Parameters
-  vehicle_info_util::VehicleInfo vehicle_info_;
+  VehicleInfo vehicle_info_;
 
   // Obstacle filtering
   double margin_between_traj_and_obstacle_;
@@ -113,7 +127,7 @@ private:
   std::mutex mutex_;
 
   // Data for callback functions
-  autoware_auto_perception_msgs::msg::PredictedObjects::SharedPtr in_objects_ptr_;
+  PredictedObjects::SharedPtr in_objects_ptr_;
   geometry_msgs::msg::TwistStamped::SharedPtr current_twist_ptr_;
   geometry_msgs::msg::TwistStamped::SharedPtr previous_twist_ptr_;
 

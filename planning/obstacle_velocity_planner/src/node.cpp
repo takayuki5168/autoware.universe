@@ -96,6 +96,35 @@ lerpPoint(tier4_autoware_utils::getPoint(points.at(i)),tier4_autoware_utils::get
 }
 */
 
+namespace
+{
+VelocityLimit createVelocityLimitMsg(
+  const rclcpp::Time & current_time, const double vel, const double acc, const double jerk)
+{
+  const double jerk_with_limit = std::min(0.0, jerk);
+
+  VelocityLimit msg;
+  msg.stamp = current_time;
+  msg.sender = "obstacle_velocity_planner";
+  msg.max_velocity = vel;
+  msg.use_constraints = true;
+  msg.constraints.min_acceleration = std::min(0.0, acc);
+  msg.constraints.min_jerk = jerk_with_limit;
+  msg.constraints.max_jerk = -jerk_with_limit;
+
+  return msg;
+}
+
+VelocityLimitClearCommand createVelocityLimitClearCommandMsg(const rclcpp::Time & current_time)
+{
+  VelocityLimitClearCommand msg;
+  msg.stamp = current_time;
+  msg.sender = "obstacle_velocity_planner";
+  msg.command = true;
+  return msg;
+}
+}
+
 ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options)
 : Node("obstacle_velocity_planner", node_options),
   self_pose_listener_(this),
@@ -105,36 +134,38 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   using std::placeholders::_1;
 
   // Subscriber
-  trajectory_sub_ = create_subscription<autoware_auto_planning_msgs::msg::Trajectory>(
+  trajectory_sub_ = create_subscription<Trajectory>(
     "~/input/trajectory", rclcpp::QoS{1},
     std::bind(&ObstacleVelocityPlanner::trajectoryCallback, this, _1));
-  smoothed_trajectory_sub_ = create_subscription<autoware_auto_planning_msgs::msg::Trajectory>(
+  smoothed_trajectory_sub_ = create_subscription<Trajectory>(
     "/planning/scenario_planning/trajectory", rclcpp::QoS{1},
     std::bind(&ObstacleVelocityPlanner::smoothedTrajectoryCallback, this, _1));
-  objects_sub_ = create_subscription<autoware_auto_perception_msgs::msg::PredictedObjects>(
-    "/perception/object_recognition/objects", rclcpp::QoS{1},
+  objects_sub_ = create_subscription<PredictedObjects>(
+    "~/input/objects", rclcpp::QoS{1},
     std::bind(&ObstacleVelocityPlanner::objectsCallback, this, _1));
-  odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-    "/localization/kinematic_state", rclcpp::QoS{1},
+  odom_sub_ = create_subscription<Odometry>(
+    "~/input/odometry", rclcpp::QoS{1},
     std::bind(&ObstacleVelocityPlanner::odomCallback, this, std::placeholders::_1));
-  sub_map_ = this->create_subscription<autoware_auto_mapping_msgs::msg::HADMapBin>(
-    "/map/vector_map", rclcpp::QoS{1}.transient_local(),
+  sub_map_ = this->create_subscription<HADMapBin>(
+    "~/input/map", rclcpp::QoS{1}.transient_local(),
     std::bind(&ObstacleVelocityPlanner::mapCallback, this, std::placeholders::_1));
   /*
-  sub_external_velocity_limit_ = create_subscription<tier4_planning_msgs::msg::VelocityLimit>(
+  sub_external_velocity_limit_ = create_subscription<VelocityLimit>(
     "/planning/scenario_planning/max_velocity", 1,
     std::bind(&ObstacleVelocityPlanner::onExternalVelocityLimit, this, _1));
   */
 
   // Publisher
   trajectory_pub_ =
-    create_publisher<autoware_auto_planning_msgs::msg::Trajectory>("~/output/trajectory", 1);
-  external_vel_limit_pub_ = create_publisher<tier4_planning_msgs::msg::VelocityLimit>(
-    "/planning/scenario_planning/max_velocity", 1);
+    create_publisher<Trajectory>("~/output/trajectory", 1);
+  external_vel_limit_pub_ = create_publisher<VelocityLimit>(
+    "~/output/velocity_limit", 1);
+  external_clear_vel_limit_pub_ = create_publisher<VelocityLimitClearCommand>(
+    "~/output/clear_velocity_limit", 1);
   debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/marker", 1);
 
   // Obstacle
-  in_objects_ptr_ = std::make_unique<autoware_auto_perception_msgs::msg::PredictedObjects>();
+  in_objects_ptr_ = std::make_unique<PredictedObjects>();
 
   // Vehicle Parameters
   vehicle_info_ = vehicle_info_util::VehicleInfoUtil(*this).getVehicleInfo();
@@ -188,7 +219,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlanner::paramCallback(
 }
 
 void ObstacleVelocityPlanner::mapCallback(
-  const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg)
+  const HADMapBin::ConstSharedPtr msg)
 {
   auto lanelet_map_ptr = std::make_shared<lanelet::LaneletMap>();
   std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr;
@@ -205,12 +236,12 @@ void ObstacleVelocityPlanner::mapCallback(
 }
 
 void ObstacleVelocityPlanner::objectsCallback(
-  const autoware_auto_perception_msgs::msg::PredictedObjects::SharedPtr msg)
+  const PredictedObjects::SharedPtr msg)
 {
   in_objects_ptr_ = msg;
 }
 
-void ObstacleVelocityPlanner::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+void ObstacleVelocityPlanner::odomCallback(const Odometry::SharedPtr msg)
 {
   current_twist_ptr_ = std::make_unique<geometry_msgs::msg::TwistStamped>();
   current_twist_ptr_->header = msg->header;
@@ -218,21 +249,21 @@ void ObstacleVelocityPlanner::odomCallback(const nav_msgs::msg::Odometry::Shared
 }
 
 void ObstacleVelocityPlanner::smoothedTrajectoryCallback(
-  const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg)
+  const Trajectory::SharedPtr msg)
 {
   planner_ptr_->setSmoothedTrajectory(msg);
 }
 
 /*
 void ObstacleVelocityPlanner::onExternalVelocityLimit(
-  const tier4_planning_msgs::msg::VelocityLimit::ConstSharedPtr msg)
+  const VelocityLimit::ConstSharedPtr msg)
 {
   external_velocity_limit_ = msg->max_velocity;
 }
 */
 
 void ObstacleVelocityPlanner::trajectoryCallback(
-  const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg)
+  const Trajectory::SharedPtr msg)
 {
   tier4_autoware_utils::StopWatch stop_watch;
   stop_watch.tic();
@@ -262,7 +293,7 @@ void ObstacleVelocityPlanner::trajectoryCallback(
   // publish velocity limit if required
   const auto vel_limit = planner_ptr_->calcVelocityLimit(planner_data);
   if (vel_limit) {
-    tier4_planning_msgs::msg::VelocityLimit vel_limit_msg;
+    VelocityLimit vel_limit_msg;
     vel_limit_msg.max_velocity = vel_limit.get();
     external_vel_limit_pub_->publish(vel_limit_msg);
   }
@@ -276,7 +307,7 @@ void ObstacleVelocityPlanner::trajectoryCallback(
 
 std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
   const std::vector<TargetObstacle> & obstacles,
-  const autoware_auto_planning_msgs::msg::Trajectory & traj,
+  const Trajectory & traj,
   const geometry_msgs::msg::Pose & current_pose, const double current_vel)
 {
   std::vector<TargetObstacle> target_obstacles;
@@ -291,13 +322,13 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
     if (first_within_idx) {  // obsacles inside the trajectory
       if (
         obstacle.classification.label ==
-          autoware_auto_perception_msgs::msg::ObjectClassification::CAR ||
+          ObjectClassification::CAR ||
         obstacle.classification.label ==
-          autoware_auto_perception_msgs::msg::ObjectClassification::TRUCK ||
+          ObjectClassification::TRUCK ||
         obstacle.classification.label ==
-          autoware_auto_perception_msgs::msg::ObjectClassification::BUS ||
+          ObjectClassification::BUS ||
         obstacle.classification.label ==
-          autoware_auto_perception_msgs::msg::ObjectClassification::MOTORCYCLE) {  // vehicle
+          ObjectClassification::MOTORCYCLE) {  // vehicle
                                                                                    // obstacle
 
         if (std::abs(obstacle.velocity) > min_obstacle_velocity_) {  // running obstacle
