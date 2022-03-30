@@ -57,7 +57,7 @@ inline tf2::Vector3 getTransVector3(
 }  // namespace
 
 autoware_auto_planning_msgs::msg::Trajectory OptimizationBasedPlanner::generateTrajectory(
-  const ObstacleVelocityPlannerData & planner_data)
+  const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion)
 {
   // Create Time Vector defined by resampling time interval
   const std::vector<double> time_vec = createTimeVector();
@@ -162,7 +162,7 @@ autoware_auto_planning_msgs::msg::Trajectory OptimizationBasedPlanner::generateT
   data.j_max = longitudinal_info_.max_jerk;
   data.j_min = longitudinal_info_.min_jerk;
   data.t_dangerous = t_dangerous_;
-  data.t_idling = longitudinal_info_.t_idling;
+  data.idling_time = longitudinal_info_.idling_time;
   data.s_boundary = *s_boundaries;
   data.v0 = v0;
   RCLCPP_DEBUG(
@@ -906,10 +906,10 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     double s_upper_bound =
       current_s_obj +
       (current_v_obj * current_v_obj) / (2 * std::abs(longitudinal_info_.min_object_accel)) -
-      0.5 * longitudinal_info_.max_accel * longitudinal_info_.t_idling *
-        longitudinal_info_.t_idling -
+      0.5 * longitudinal_info_.max_accel * longitudinal_info_.idling_time *
+        longitudinal_info_.idling_time -
       0.5 * longitudinal_info_.max_accel * longitudinal_info_.max_accel *
-        longitudinal_info_.t_idling * longitudinal_info_.t_idling /
+        longitudinal_info_.idling_time * longitudinal_info_.idling_time /
         std::abs(longitudinal_info_.min_accel);
     s_upper_bound = std::max(s_upper_bound, 0.0);
     if (s_upper_bound < s_boundaries.at(i).max_s) {

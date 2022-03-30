@@ -34,7 +34,7 @@ public:
     double j_max;
     double j_min;
     double t_dangerous;
-    double t_idling;
+    double idling_time;
     SBoundaries s_boundary;
   };
 

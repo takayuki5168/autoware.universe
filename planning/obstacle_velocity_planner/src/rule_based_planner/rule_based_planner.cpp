@@ -79,10 +79,9 @@ size_t getIndexWithLongitudinalOffset(
 }  // namespace
 
 autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajectory(
-  const ObstacleVelocityPlannerData & planner_data)
+  const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion)
 {
   auto output_traj = planner_data.traj;
-  vel_limit_ = 16.7;  // 60 [km/h]
 
   const size_t ego_idx =
     tier4_autoware_utils::findNearestIndex(output_traj.points, planner_data.current_pose.position);
@@ -175,19 +174,40 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
     // calculate target velocity with acceleration limit by PID controller
     const double diff_vel = pid_controller_->calc(min_dist_to_slow_down.get());
     const double prev_vel = prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
+    const double additional_vel =
+      std::clamp(diff_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel * 0.1);
     const double target_vel_with_acc_limit =
-      prev_vel + std::max(
-                   std::min(diff_vel, longitudinal_info_.max_accel * 0.1),
-                   longitudinal_info_.min_accel * 0.1);  // TODO(murooka) accel * 0.1 (time step)
+      prev_vel + additional_vel;  // TODO(murooka) accel * 0.1 (time step)
+
+    // calculate target acceleration
+    const double target_acc = vel_to_acc_weight_ * additional_vel;
+    const double target_acc_with_acc_limit =
+      std::clamp(target_acc, longitudinal_info_.min_accel, longitudinal_info_.max_accel);
+
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("ObstacleVelocityPlanner::RuleBasedPlanner"), true, "target_velocity %f",
       target_vel_with_acc_limit);
 
     prev_target_vel_ = target_vel_with_acc_limit;
 
-    // set velocity limit
-    if (!vel_limit_ || target_vel_with_acc_limit < vel_limit_.get()) {
-      vel_limit_ = target_vel_with_acc_limit;
+    // set target longitudinal motion
+    if (!target_motion.vel || target_vel_with_acc_limit < target_motion.vel.get()) {
+      target_motion.reset();
+
+      // vel
+      target_motion.vel = target_vel_with_acc_limit;
+      // acc
+      if (target_acc_with_acc_limit > 0) {
+        target_motion.max_acc = target_acc_with_acc_limit;
+      } else {
+        target_motion.min_acc = target_acc_with_acc_limit;
+      }
+      std::cerr << vel_to_acc_weight_ << " " << additional_vel << " " << target_acc << " "
+                << target_acc_with_acc_limit << " " << longitudinal_info_.min_accel << " "
+                << longitudinal_info_.max_accel << std::endl;
+      // jerk
+      target_motion.max_jerk = longitudinal_info_.max_jerk;
+      target_motion.min_jerk = longitudinal_info_.min_jerk;
     }
 
     // virtual wall marker for slow down
@@ -211,14 +231,9 @@ autoware_auto_planning_msgs::msg::Trajectory RuleBasedPlanner::generateTrajector
   return output_traj;
 }
 
-boost::optional<double> RuleBasedPlanner::calcVelocityLimit(
-  const ObstacleVelocityPlannerData & planner_data)
-{
-  return vel_limit_;
-}
-
 void RuleBasedPlanner::updateParam(const std::vector<rclcpp::Parameter> & parameters)
 {
+  // pid controller
   double kp = pid_controller_->getKp();
   double ki = pid_controller_->getKi();
   double kd = pid_controller_->getKd();
@@ -226,7 +241,10 @@ void RuleBasedPlanner::updateParam(const std::vector<rclcpp::Parameter> & parame
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kp", kp);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.ki", ki);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kd", kd);
-  std::cerr << kp << " " << ki << " " << kd << std::endl;
+
+  // vel_to_acc_weight
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "rule_based_planner.vel_to_acc_weight", vel_to_acc_weight_);
 
   pid_controller_->updateParam(kp, ki, kd);
 }

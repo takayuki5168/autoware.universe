@@ -20,6 +20,8 @@
 #include "autoware_auto_perception_msgs/msg/predicted_objects.hpp"
 #include "autoware_auto_planning_msgs/msg/trajectory.hpp"
 
+#include <boost/optional.hpp>
+
 #include <vector>
 
 struct TargetObstacle
@@ -80,13 +82,13 @@ struct RSSLongitudinalInfo
 {
   RSSLongitudinalInfo(
     const double arg_max_accel, const double arg_min_accel, const double arg_max_jerk,
-    const double arg_min_jerk, const double arg_min_object_accel, const double arg_t_idling)
+    const double arg_min_jerk, const double arg_min_object_accel, const double arg_idling_time)
   : max_accel(arg_max_accel),
     min_accel(arg_min_accel),
     max_jerk(arg_max_jerk),
     min_jerk(arg_min_jerk),
     min_object_accel(arg_min_object_accel),
-    t_idling(arg_t_idling)
+    idling_time(arg_idling_time)
   {
   }
   double max_accel;
@@ -94,7 +96,25 @@ struct RSSLongitudinalInfo
   double max_jerk;
   double min_jerk;
   double min_object_accel;
-  double t_idling;
+  double idling_time;
+};
+
+struct LongitudinalMotion
+{
+  void reset()
+  {
+    vel = {};
+    max_acc = {};
+    min_acc = {};
+    max_jerk = {};
+    min_jerk = {};
+  }
+
+  boost::optional<double> vel;
+  boost::optional<double> max_acc;
+  boost::optional<double> min_acc;
+  boost::optional<double> max_jerk;
+  boost::optional<double> min_jerk;
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__COMMON_STRUCTS_HPP_

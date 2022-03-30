@@ -99,18 +99,31 @@ lerpPoint(tier4_autoware_utils::getPoint(points.at(i)),tier4_autoware_utils::get
 namespace
 {
 VelocityLimit createVelocityLimitMsg(
-  const rclcpp::Time & current_time, const double vel, const double acc, const double jerk)
+  const rclcpp::Time & current_time, const LongitudinalMotion & target_motion)
 {
-  const double jerk_with_limit = std::min(0.0, jerk);
-
   VelocityLimit msg;
   msg.stamp = current_time;
   msg.sender = "obstacle_velocity_planner";
-  msg.max_velocity = vel;
   msg.use_constraints = true;
-  msg.constraints.min_acceleration = std::min(0.0, acc);
-  msg.constraints.min_jerk = jerk_with_limit;
-  msg.constraints.max_jerk = -jerk_with_limit;
+
+  // vel
+  if (target_motion.vel) {
+    msg.max_velocity = target_motion.vel.get();
+  }
+  // acc
+  // if (target_motion.max_acc) {
+  //   msg.constraints.max_acceleration = target_motion.max_acc.get();
+  // }
+  if (target_motion.min_acc) {
+    msg.constraints.min_acceleration = target_motion.min_acc.get();
+  }
+  // jerk
+  if (target_motion.max_jerk) {
+    msg.constraints.max_jerk = target_motion.max_jerk.get();
+  }
+  if (target_motion.min_jerk) {
+    msg.constraints.min_jerk = target_motion.min_jerk.get();
+  }
 
   return msg;
 }
@@ -123,7 +136,7 @@ VelocityLimitClearCommand createVelocityLimitClearCommandMsg(const rclcpp::Time 
   msg.command = true;
   return msg;
 }
-}
+}  // namespace
 
 ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options)
 : Node("obstacle_velocity_planner", node_options),
@@ -156,12 +169,10 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   */
 
   // Publisher
-  trajectory_pub_ =
-    create_publisher<Trajectory>("~/output/trajectory", 1);
-  external_vel_limit_pub_ = create_publisher<VelocityLimit>(
-    "~/output/velocity_limit", 1);
-  external_clear_vel_limit_pub_ = create_publisher<VelocityLimitClearCommand>(
-    "~/output/clear_velocity_limit", 1);
+  trajectory_pub_ = create_publisher<Trajectory>("~/output/trajectory", 1);
+  vel_limit_pub_ = create_publisher<VelocityLimit>("~/output/velocity_limit", 1);
+  clear_vel_limit_pub_ =
+    create_publisher<VelocityLimitClearCommand>("~/output/clear_velocity_limit", 1);
   debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/marker", 1);
 
   // Obstacle
@@ -176,11 +187,11 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
   const double max_jerk = declare_parameter("common.max_jerk", 1.0);
   const double min_jerk = declare_parameter("common.min_jerk", -1.0);
   const double min_object_accel = declare_parameter("common.min_object_accel", -3.0);
-  const double t_idling = declare_parameter("common.t_idling", 2.0);
+  const double idling_time = declare_parameter("common.idling_time", 2.0);
 
   // Obstacle filtering parameters
-  margin_between_traj_and_obstacle_ =
-    declare_parameter<double>("obstacle_filtering.margin_between_traj_and_obstacle");
+  detection_area_expand_width_ =
+    declare_parameter<double>("obstacle_filtering.detection_area_expand_width");
   min_obstacle_velocity_ = declare_parameter<double>("obstacle_filtering.min_obstacle_velocity");
   margin_for_collision_time_ =
     declare_parameter<double>("obstacle_filtering.margin_for_collision_time");
@@ -194,10 +205,12 @@ ObstacleVelocityPlanner::ObstacleVelocityPlanner(const rclcpp::NodeOptions & nod
 
   if (planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
     planner_ptr_ = std::make_unique<OptimizationBasedPlanner>(
-      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info_);
+      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time,
+      vehicle_info_);
   } else if (planning_method_ == PlanningMethod::RULE_BASE) {
     planner_ptr_ = std::make_unique<RuleBasedPlanner>(
-      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info_);
+      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time,
+      vehicle_info_);
   } else {
     std::logic_error("Designated method is not supported.");
   }
@@ -218,8 +231,7 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlanner::paramCallback(
   return result;
 }
 
-void ObstacleVelocityPlanner::mapCallback(
-  const HADMapBin::ConstSharedPtr msg)
+void ObstacleVelocityPlanner::mapCallback(const HADMapBin::ConstSharedPtr msg)
 {
   auto lanelet_map_ptr = std::make_shared<lanelet::LaneletMap>();
   std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr;
@@ -235,8 +247,7 @@ void ObstacleVelocityPlanner::mapCallback(
   }
 }
 
-void ObstacleVelocityPlanner::objectsCallback(
-  const PredictedObjects::SharedPtr msg)
+void ObstacleVelocityPlanner::objectsCallback(const PredictedObjects::SharedPtr msg)
 {
   in_objects_ptr_ = msg;
 }
@@ -248,8 +259,7 @@ void ObstacleVelocityPlanner::odomCallback(const Odometry::SharedPtr msg)
   current_twist_ptr_->twist = msg->twist.twist;
 }
 
-void ObstacleVelocityPlanner::smoothedTrajectoryCallback(
-  const Trajectory::SharedPtr msg)
+void ObstacleVelocityPlanner::smoothedTrajectoryCallback(const Trajectory::SharedPtr msg)
 {
   planner_ptr_->setSmoothedTrajectory(msg);
 }
@@ -262,8 +272,7 @@ void ObstacleVelocityPlanner::onExternalVelocityLimit(
 }
 */
 
-void ObstacleVelocityPlanner::trajectoryCallback(
-  const Trajectory::SharedPtr msg)
+void ObstacleVelocityPlanner::trajectoryCallback(const Trajectory::SharedPtr msg)
 {
   tier4_autoware_utils::StopWatch stop_watch;
   stop_watch.tic();
@@ -288,14 +297,19 @@ void ObstacleVelocityPlanner::trajectoryCallback(
     obstacles, planner_data.traj, planner_data.current_pose, planner_data.current_vel);
 
   // generate Trajectory
-  const auto output = planner_ptr_->generateTrajectory(planner_data);
+  LongitudinalMotion target_motion;
+  const auto output = planner_ptr_->generateTrajectory(planner_data, target_motion);
 
-  // publish velocity limit if required
-  const auto vel_limit = planner_ptr_->calcVelocityLimit(planner_data);
-  if (vel_limit) {
-    VelocityLimit vel_limit_msg;
-    vel_limit_msg.max_velocity = vel_limit.get();
-    external_vel_limit_pub_->publish(vel_limit_msg);
+  if (target_motion.vel) {
+    const auto vel_limit_msg = createVelocityLimitMsg(get_clock()->now(), target_motion);
+    vel_limit_pub_->publish(vel_limit_msg);
+    need_to_clear_vel_limit_ = true;
+  } else {
+    if (need_to_clear_vel_limit_) {
+      const auto clear_vel_limit_msg = createVelocityLimitClearCommandMsg(get_clock()->now());
+      clear_vel_limit_pub_->publish(clear_vel_limit_msg);
+      need_to_clear_vel_limit_ = false;
+    }
   }
 
   // Publish trajectory
@@ -306,8 +320,7 @@ void ObstacleVelocityPlanner::trajectoryCallback(
 }
 
 std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
-  const std::vector<TargetObstacle> & obstacles,
-  const Trajectory & traj,
+  const std::vector<TargetObstacle> & obstacles, const Trajectory & traj,
   const geometry_msgs::msg::Pose & current_pose, const double current_vel)
 {
   std::vector<TargetObstacle> target_obstacles;
@@ -317,19 +330,15 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
   for (const auto & obstacle : obstacles) {
     const auto first_within_idx = polygon_utils::getFirstCollisionIndex(
       traj_polygons, polygon_utils::convertObstacleToPolygon(obstacle.pose, obstacle.shape),
-      margin_between_traj_and_obstacle_);
+      detection_area_expand_width_);
 
     if (first_within_idx) {  // obsacles inside the trajectory
       if (
-        obstacle.classification.label ==
-          ObjectClassification::CAR ||
-        obstacle.classification.label ==
-          ObjectClassification::TRUCK ||
-        obstacle.classification.label ==
-          ObjectClassification::BUS ||
-        obstacle.classification.label ==
-          ObjectClassification::MOTORCYCLE) {  // vehicle
-                                                                                   // obstacle
+        obstacle.classification.label == ObjectClassification::CAR ||
+        obstacle.classification.label == ObjectClassification::TRUCK ||
+        obstacle.classification.label == ObjectClassification::BUS ||
+        obstacle.classification.label == ObjectClassification::MOTORCYCLE) {  // vehicle
+                                                                              // obstacle
 
         if (std::abs(obstacle.velocity) > min_obstacle_velocity_) {  // running obstacle
           const double time_to_collision = [&]() {
@@ -345,7 +354,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
           const double time_to_obstacle_getting_out = [&]() {
             const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
               traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape, first_within_idx.get(),
-              margin_between_traj_and_obstacle_);
+              detection_area_expand_width_);
             if (!obstacle_getting_out_idx) {
               return std::numeric_limits<double>::max();
             }
@@ -377,7 +386,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlanner::filterObstacles(
               // std::max(shape.dimensions.x, shape.dimensions.y) / 2.0;
       const bool will_collide = polygon_utils::willCollideWithSurroundObstacle(
         traj, traj_polygons, obstacle.predicted_paths.at(0), obstacle.shape,
-        margin_between_traj_and_obstacle_, max_dist, max_ego_obj_overlap_time_,
+        detection_area_expand_width_, max_dist, max_ego_obj_overlap_time_,
         max_prediction_time_for_collision_check_);
       if (!will_collide) {
         // False Condition 2. Ignore vehicle obstacles outside the trajectory, whose predicted path

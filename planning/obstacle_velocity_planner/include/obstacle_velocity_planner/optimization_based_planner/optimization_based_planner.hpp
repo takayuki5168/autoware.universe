@@ -41,10 +41,10 @@ class OptimizationBasedPlanner : public PlannerInterface
 public:
   OptimizationBasedPlanner(
     rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
-    const double min_jerk, const double min_object_accel, const double t_idling,
+    const double min_jerk, const double min_object_accel, const double idling_time,
     const vehicle_info_util::VehicleInfo & vehicle_info)
   : PlannerInterface(
-      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info)
+      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time, vehicle_info)
   {
     // parameter
     resampling_s_interval_ = node.declare_parameter("resampling_s_interval", 1.0);
@@ -105,7 +105,7 @@ public:
   }
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data) override;
+    const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion) override;
 
 private:
   struct TrajectoryData

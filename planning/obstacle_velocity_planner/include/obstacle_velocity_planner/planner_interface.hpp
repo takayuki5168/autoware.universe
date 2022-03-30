@@ -35,10 +35,10 @@ class PlannerInterface
 public:
   PlannerInterface(
     const double max_accel, const double min_accel, const double max_jerk, const double min_jerk,
-    const double min_object_accel, const double t_idling,
+    const double min_object_accel, const double idling_time,
     const vehicle_info_util::VehicleInfo & vehicle_info)
   : longitudinal_info_(
-      RSSLongitudinalInfo(max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling)),
+      RSSLongitudinalInfo(max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time)),
     vehicle_info_(vehicle_info)
   {
   }
@@ -46,13 +46,7 @@ public:
   PlannerInterface() = default;
 
   virtual autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data) = 0;
-
-  virtual boost::optional<double> calcVelocityLimit(
-    const ObstacleVelocityPlannerData & planner_data)
-  {
-    return {};
-  }
+    const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion) = 0;
 
   virtual void updateParam(const std::vector<rclcpp::Parameter> & parameters) {}
 
@@ -92,8 +86,8 @@ protected:
   {
     const auto & i = longitudinal_info_;
     const double rss_dist_with_margin =
-      ego_vel * i.t_idling + 0.5 * i.max_accel * std::pow(i.t_idling, 2) +
-      std::pow(ego_vel + i.max_accel * i.t_idling, 2) * 0.5 / std::abs(i.min_accel) -
+      ego_vel * i.idling_time + 0.5 * i.max_accel * std::pow(i.idling_time, 2) +
+      std::pow(ego_vel + i.max_accel * i.idling_time, 2) * 0.5 / std::abs(i.min_accel) -
       std::pow(obj_vel, 2) * 0.5 / std::abs(i.min_object_accel) + margin;
     return rss_dist_with_margin;
   }

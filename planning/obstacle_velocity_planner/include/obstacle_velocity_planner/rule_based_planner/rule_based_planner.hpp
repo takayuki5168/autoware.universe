@@ -28,16 +28,18 @@ class RuleBasedPlanner : public PlannerInterface
 public:
   RuleBasedPlanner(
     rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
-    const double min_jerk, const double min_object_accel, const double t_idling,
+    const double min_jerk, const double min_object_accel, const double idling_time,
     const vehicle_info_util::VehicleInfo & vehicle_info)
   : PlannerInterface(
-      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, t_idling, vehicle_info)
+      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time, vehicle_info)
   {
     // pid controller
     const double kp = node.declare_parameter<double>("rule_based_planner.kp");
     const double ki = node.declare_parameter<double>("rule_based_planner.ki");
     const double kd = node.declare_parameter<double>("rule_based_planner.kd");
     pid_controller_ = std::make_unique<PIDController>(kp, ki, kd);
+
+    vel_to_acc_weight_ = node.declare_parameter<double>("rule_based_planner.vel_to_acc_weight");
 
     max_obj_velocity_for_stop_ =
       node.declare_parameter<double>("rule_based_planner.max_obj_velocity_for_stop");
@@ -53,22 +55,17 @@ public:
   }
 
   autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data) override;
-
-  boost::optional<double> calcVelocityLimit(
-    const ObstacleVelocityPlannerData & planner_data) override;
+    const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion) override;
 
   void updateParam(const std::vector<rclcpp::Parameter> & parameters) override;
 
 private:
   std::unique_ptr<PIDController> pid_controller_;
+  double vel_to_acc_weight_;
 
   // Publisher
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
-
-  // Velocity limit for slow down
-  boost::optional<double> vel_limit_;
 
   boost::optional<double> prev_target_vel_;
 

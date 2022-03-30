@@ -44,16 +44,16 @@
 #include <mutex>
 #include <vector>
 
+using autoware_auto_mapping_msgs::msg::HADMapBin;
 using autoware_auto_perception_msgs::msg::ObjectClassification;
 using autoware_auto_perception_msgs::msg::PredictedObject;
 using autoware_auto_perception_msgs::msg::PredictedObjects;
 using autoware_auto_perception_msgs::msg::PredictedPath;
 using autoware_auto_planning_msgs::msg::Trajectory;
 using autoware_auto_planning_msgs::msg::TrajectoryPoint;
+using nav_msgs::msg::Odometry;
 using tier4_planning_msgs::msg::VelocityLimit;
 using tier4_planning_msgs::msg::VelocityLimitClearCommand;
-using nav_msgs::msg::Odometry;
-using autoware_auto_mapping_msgs::msg::HADMapBin;
 using vehicle_info_util::VehicleInfo;
 
 class ObstacleVelocityPlanner : public rclcpp::Node
@@ -76,27 +76,22 @@ private:
 
   void trajectoryCallback(const Trajectory::SharedPtr msg);
 
-  void smoothedTrajectoryCallback(
-    const Trajectory::SharedPtr msg);
+  void smoothedTrajectoryCallback(const Trajectory::SharedPtr msg);
 
   // void onExternalVelocityLimit(const VelocityLimit::ConstSharedPtr msg);
 
   // Member Functions
   std::vector<TargetObstacle> filterObstacles(
-    const std::vector<TargetObstacle> & obstacles,
-    const Trajectory & traj,
+    const std::vector<TargetObstacle> & obstacles, const Trajectory & traj,
     const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
-  Trajectory generateRuleBaseTrajectory(
-    const ObstacleVelocityPlannerData & planner_data);
+  Trajectory generateRuleBaseTrajectory(const ObstacleVelocityPlannerData & planner_data);
 
   // ROS related members
   // Subscriber
   rclcpp::Subscription<Trajectory>::SharedPtr trajectory_sub_;
-  rclcpp::Subscription<Trajectory>::SharedPtr
-    smoothed_trajectory_sub_;
-  rclcpp::Subscription<PredictedObjects>::SharedPtr
-    objects_sub_;
+  rclcpp::Subscription<Trajectory>::SharedPtr smoothed_trajectory_sub_;
+  rclcpp::Subscription<PredictedObjects>::SharedPtr objects_sub_;
   rclcpp::Subscription<Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<HADMapBin>::SharedPtr sub_map_;
   // rclcpp::Subscription<VelocityLimit>::SharedPtr
@@ -104,8 +99,8 @@ private:
 
   // Publisher
   rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;
-  rclcpp::Publisher<VelocityLimit>::SharedPtr external_vel_limit_pub_;
-  rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr external_clear_vel_limit_pub_;
+  rclcpp::Publisher<VelocityLimit>::SharedPtr vel_limit_pub_;
+  rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr clear_vel_limit_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
 
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
@@ -117,7 +112,7 @@ private:
   VehicleInfo vehicle_info_;
 
   // Obstacle filtering
-  double margin_between_traj_and_obstacle_;
+  double detection_area_expand_width_;
   double min_obstacle_velocity_;
   double margin_for_collision_time_;
   double max_ego_obj_overlap_time_;
@@ -133,6 +128,8 @@ private:
 
   PlanningMethod planning_method_;
   std::unique_ptr<PlannerInterface> planner_ptr_;
+
+  bool need_to_clear_vel_limit_{false};
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__NODE_HPP_
