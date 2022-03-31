@@ -1,0 +1,28 @@
+<launch>
+  <arg name="adaptive_cruise_control_param_path" default="$(find-pkg-share adaptive_cruise_controller)/config/adaptive_cruise_control.param.yaml" />
+
+  <!-- vehicle info -->
+  <arg name="vehicle_info_param_file" default="$(find-pkg-share vehicle_info_util)/config/vehicle_info.param.yaml" />
+
+  <arg name="input_objects" default="/perception/object_recognition/objects" />
+  <arg name="input_odometry" default="/localization/kinematic_state" />
+  <arg name="input_trajectory" default="/planning/scenario_planning/lane_driving/motion_planning/surround_obstacle_checker/trajectory" />
+  <arg name="output_trajectory" default="/planning/scenario_planning/lane_driving/trajectory" />
+  <arg name="output_velocity_limit" default="/planning/scenario_planning/max_velocity_candidates" />
+  <arg name="output_clear_velocity_limit" default="/planning/scenario_planning/clear_velocity_limit" />
+
+  <node pkg="adaptive_cruise_controller" exec="adaptive_cruise_controller_node" name="adaptive_cruise_controller" output="screen">
+    <!-- load config files -->
+    <param from="$(var adaptive_cruise_control_param_path)" />
+    <param from="$(var vehicle_info_param_file)" />
+    <!-- remap topic name -->
+    <remap from="~/output/stop_reasons" to="/planning/scenario_planning/status/stop_reasons" />
+    <remap from="~/output/trajectory" to="$(var output_trajectory)" />
+    <remap from="~/output/velocity_limit" to="$(var output_velocity_limit)" />
+    <remap from="~/output/clear_velocity_limit" to="$(var output_clear_velocity_limit)" />
+    <remap from="~/input/objects" to="$(var input_objects)" />
+    <remap from="~/input/trajectory" to="$(var input_trajectory)" />
+    <remap from="~/input/odometry" to="$(var input_odometry)" />
+  </node>
+
+</launch>

@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    decimate_step_length: 1.0
+    trajectory_extend_length: 5.0
+    rough_detection_area_expand_length: 3.0
+    detection_area_expand_length: 0.0
+    object_threshold_angle: 0.523
+    predicted_path_threshold_angle: 0.523
+    mininum_overlap_time_of_predicted_path: 2.0
+
+
+
+    object_low_velocity_thresh: 3.0 # if object velocity is lower than this value, adaptive cruise becomes disable.
+    object_stop_velocity_thresh: 1.0 # if object velocity is lower than this value, ignore the sign of object orientation
+    object_velocity_hysteresis_margin: 1.0 # hysteresis margin to change acc state for preventing chattering
+    reset_time_to_acc_state: 1.0
+    velocity_to_accleration_weight: 0.3 # target accleration is calculated by (target_velocity - current_velocity) * velocity_to_accleration_weight
+    acc_min_acceleration: -1.5
+    acc_min_jerk: -1.0
+    stop_min_acceleration: -3.0
+    object_min_acceleration: -3.0
+    minimum_margin_distance: 5.0
+    idling_time: 1.0
+    breaking_delay_time: 0.5
+    p_term_in_velocity_pid: 0.3
