@@ -3,7 +3,7 @@ project(obstacle_velocity_planner)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # add_compile_options(-Wall -Wextra -Wpedantic -Werror)
-  add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+  add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 find_package(ament_cmake_auto REQUIRED)
@@ -23,7 +23,7 @@ ament_auto_add_library(obstacle_velocity_planner_core SHARED
 )
 
 rclcpp_components_register_node(obstacle_velocity_planner_core
-  PLUGIN "ObstacleVelocityPlanner"
+  PLUGIN "motion_planning::ObstacleVelocityPlannerNode"
   EXECUTABLE obstacle_velocity_planner
 )
 

@@ -37,9 +37,6 @@ using tier4_autoware_utils::Polygon2d;
 Polygon2d convertObstacleToPolygon(
   const geometry_msgs::msg::Pose & pose, const autoware_auto_perception_msgs::msg::Shape & shape);
 
-void appendPointToPolygon(Polygon2d & polygon, const geometry_msgs::msg::Point & geom_point);
-void appendPointToPolygon(Polygon2d & polygon, const geometry_msgs::msg::Point32 & geom_point);
-
 boost::optional<size_t> getFirstCollisionIndex(
   const std::vector<Polygon2d> & base_polygons, const Polygon2d & target_polygon,
   const double margin = 0.0);

@@ -18,6 +18,9 @@
 #include "obstacle_velocity_planner/common_structs.hpp"
 #include "vehicle_info_util/vehicle_info_util.hpp"
 
+#include "tier4_planning_msgs/msg/velocity_limit.hpp"
+#include "autoware_auto_planning_msgs/msg/trajectory.hpp"
+
 #include <boost/optional.hpp>
 
 #include <lanelet2_core/LaneletMap.h>
@@ -29,6 +32,9 @@
 
 #include <memory>
 #include <vector>
+
+using tier4_planning_msgs::msg::VelocityLimit;
+using autoware_auto_planning_msgs::msg::Trajectory;
 
 class PlannerInterface
 {
@@ -45,8 +51,16 @@ public:
 
   PlannerInterface() = default;
 
-  virtual autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion) = 0;
+  // two kinds of velocity planning is supported.
+  // 1. getZeroVelocityIndexWithVelocityLimit
+  //   returns zero velocity index and velocity limit
+  // 2. generateTrajectory
+  //   returns trajectory with planned velocity
+  virtual boost::optional<size_t> getZeroVelocityIndexWithVelocityLimit(
+    const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit) { return {}; };
+
+  virtual Trajectory generateTrajectory(
+    const ObstacleVelocityPlannerData & planner_data) { return Trajectory{}; }
 
   virtual void updateParam(const std::vector<rclcpp::Parameter> & parameters) {}
 
@@ -62,7 +76,7 @@ public:
   }
 
   // TODO(shimizu) remove this function
-  void setSmoothedTrajectory(const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr traj)
+  void setSmoothedTrajectory(const Trajectory::SharedPtr traj)
   {
     smoothed_trajectory_ptr_ = traj;
   }
@@ -79,7 +93,7 @@ protected:
   std::shared_ptr<lanelet::LaneletMap> lanelet_map_ptr_;
   std::shared_ptr<lanelet::routing::RoutingGraph> routing_graph_ptr_;
   std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr_;
-  autoware_auto_planning_msgs::msg::Trajectory::SharedPtr smoothed_trajectory_ptr_;
+  Trajectory::SharedPtr smoothed_trajectory_ptr_;
 
   double calcRSSDistance(
     const double ego_vel, const double obj_vel, const double margin = 0.0) const

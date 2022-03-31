@@ -32,6 +32,7 @@
 #include <tier4_debug_msgs/msg/float32_stamped.hpp>
 #include <tier4_planning_msgs/msg/velocity_limit.hpp>
 #include <tier4_planning_msgs/msg/velocity_limit_clear_command.hpp>
+#include <tier4_planning_msgs/msg/stop_reason_array.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <boost/optional.hpp>
@@ -54,12 +55,15 @@ using autoware_auto_planning_msgs::msg::TrajectoryPoint;
 using nav_msgs::msg::Odometry;
 using tier4_planning_msgs::msg::VelocityLimit;
 using tier4_planning_msgs::msg::VelocityLimitClearCommand;
+using tier4_planning_msgs::msg::StopReasonArray;
 using vehicle_info_util::VehicleInfo;
 
-class ObstacleVelocityPlanner : public rclcpp::Node
+namespace motion_planning
+{
+class ObstacleVelocityPlannerNode : public rclcpp::Node
 {
 public:
-  explicit ObstacleVelocityPlanner(const rclcpp::NodeOptions & node_options);
+  explicit ObstacleVelocityPlannerNode(const rclcpp::NodeOptions & node_options);
 
 private:
   enum class PlanningMethod { OPTIMIZATION_BASE, RULE_BASE };
@@ -101,6 +105,8 @@ private:
   rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<VelocityLimit>::SharedPtr vel_limit_pub_;
   rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr clear_vel_limit_pub_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr stop_reason_diag_pub_;
+  rclcpp::Publisher<tier4_planning_msgs::msg::StopReasonArray>::SharedPtr stop_reason_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
 
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
@@ -131,5 +137,6 @@ private:
 
   bool need_to_clear_vel_limit_{false};
 };
+}  // namespace motion_planning
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__NODE_HPP_

@@ -17,11 +17,16 @@
 
 #include "obstacle_velocity_planner/planner_interface.hpp"
 #include "obstacle_velocity_planner/rule_based_planner/pid_controller.hpp"
+#include "obstacle_velocity_planner/rule_based_planner/debug_values.hpp"
 
 #include "visualization_msgs/msg/marker_array.hpp"
+#include "tier4_debug_msgs/msg/float32_multi_array_stamped.hpp"
 
+#include <boost/optional.hpp>
 #include <memory>
 #include <vector>
+
+using tier4_debug_msgs::msg::Float32MultiArrayStamped;
 
 class RuleBasedPlanner : public PlannerInterface
 {
@@ -29,50 +34,33 @@ public:
   RuleBasedPlanner(
     rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
     const double min_jerk, const double min_object_accel, const double idling_time,
-    const vehicle_info_util::VehicleInfo & vehicle_info)
-  : PlannerInterface(
-      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time, vehicle_info)
-  {
-    // pid controller
-    const double kp = node.declare_parameter<double>("rule_based_planner.kp");
-    const double ki = node.declare_parameter<double>("rule_based_planner.ki");
-    const double kd = node.declare_parameter<double>("rule_based_planner.kd");
-    pid_controller_ = std::make_unique<PIDController>(kp, ki, kd);
+    const vehicle_info_util::VehicleInfo & vehicle_info);
 
-    vel_to_acc_weight_ = node.declare_parameter<double>("rule_based_planner.vel_to_acc_weight");
-
-    max_obj_velocity_for_stop_ =
-      node.declare_parameter<double>("rule_based_planner.max_obj_velocity_for_stop");
-    safe_distance_margin_ =
-      node.declare_parameter<double>("rule_based_planner.safe_distance_margin");
-    strong_min_accel_ = node.declare_parameter<double>("rule_based_planner.strong_min_accel");
-
-    // Publisher
-    debug_wall_marker_pub_ =
-      node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
-    debug_rss_wall_marker_pub_ =
-      node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/rss_wall_marker", 1);
-  }
-
-  autoware_auto_planning_msgs::msg::Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data, LongitudinalMotion & target_motion) override;
+  boost::optional<size_t> getZeroVelocityIndexWithVelocityLimit(
+    const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit) override;
 
   void updateParam(const std::vector<rclcpp::Parameter> & parameters) override;
 
 private:
+  // ROS param
   std::unique_ptr<PIDController> pid_controller_;
   double vel_to_acc_weight_;
+  double min_slow_down_target_vel_;
+  double max_obj_velocity_for_stop_;
+  double safe_distance_margin_;
+  double strong_min_accel_;
 
   // Publisher
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
+  rclcpp::Publisher<Float32MultiArrayStamped>::SharedPtr debug_values_pub_;
 
   boost::optional<double> prev_target_vel_;
 
-  // Parameter
-  double max_obj_velocity_for_stop_;
-  double safe_distance_margin_;
-  double strong_min_accel_;
+  size_t doStop(const ObstacleVelocityPlannerData & planner_data, const double dist_to_stop) const;
+  VelocityLimit doSlowDown(const ObstacleVelocityPlannerData & planner_data, const double dist_to_slow_down);
+
+  DebugValues debug_values_;
 };
 
 #endif  // OBSTACLE_VELOCITY_PLANNER__RULE_BASED_PLANNER__RULE_BASED_PLANNER_HPP_

@@ -14,8 +14,12 @@
 
 #include "obstacle_velocity_planner/polygon_utils.hpp"
 
-namespace polygon_utils
+namespace
 {
+namespace bg = boost::geometry;
+using tier4_autoware_utils::Point2d;
+using tier4_autoware_utils::Polygon2d;
+
 void appendPointToPolygon(Polygon2d & polygon, const geometry_msgs::msg::Point & geom_point)
 {
   Point2d point;
@@ -34,51 +38,67 @@ void appendPointToPolygon(Polygon2d & polygon, const geometry_msgs::msg::Point32
   bg::append(polygon.outer(), point);
 }
 
+void appendPointToPolygon(Polygon2d & polygon, const Point2d point)
+{
+  bg::append(polygon.outer(), point);
+}
+}  // namespace
+
+namespace polygon_utils
+{
 Polygon2d convertObstacleToPolygon(
   const geometry_msgs::msg::Pose & pose, const autoware_auto_perception_msgs::msg::Shape & shape)
 {
   Polygon2d polygon;
 
   if (shape.type == autoware_auto_perception_msgs::msg::Shape::BOUNDING_BOX) {
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(
-                 pose, shape.dimensions.x / 2.0, shape.dimensions.y / 2.0, 0.0)
-                 .position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(
-                 pose, -shape.dimensions.x / 2.0, shape.dimensions.y / 2.0, 0.0)
-                 .position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(
-                 pose, -shape.dimensions.x / 2.0, -shape.dimensions.y / 2.0, 0.0)
-                 .position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(
-                 pose, shape.dimensions.x / 2.0, -shape.dimensions.y / 2.0, 0.0)
-                 .position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(
-                 pose, shape.dimensions.x / 2.0, shape.dimensions.y / 2.0, 0.0)
-                 .position);
+    const auto point0 = tier4_autoware_utils::calcOffsetPose(
+                          pose, shape.dimensions.x / 2.0, shape.dimensions.y / 2.0, 0.0)
+                          .position;
+    const auto point1 = tier4_autoware_utils::calcOffsetPose(
+                          pose, -shape.dimensions.x / 2.0, shape.dimensions.y / 2.0, 0.0)
+                          .position;
+    const auto point2 = tier4_autoware_utils::calcOffsetPose(
+                          pose, -shape.dimensions.x / 2.0, -shape.dimensions.y / 2.0, 0.0)
+                          .position;
+    const auto point3 = tier4_autoware_utils::calcOffsetPose(
+                          pose, shape.dimensions.x / 2.0, -shape.dimensions.y / 2.0, 0.0)
+                          .position;
+
+    appendPointToPolygon(polygon, point0);
+    appendPointToPolygon(polygon, point1);
+    appendPointToPolygon(polygon, point2);
+    appendPointToPolygon(polygon, point3);
+
+    // NOTE: push back the first point in order to close polygon
+    appendPointToPolygon(polygon, polygon.outer().front());
   } else if (shape.type == autoware_auto_perception_msgs::msg::Shape::CYLINDER) {
-    // TODO(murooka)
     const double radius = shape.dimensions.x / 2.0;
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, radius, 0.0).position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(pose, -radius, radius, 0.0).position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(pose, -radius, -radius, 0.0).position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, -radius, 0.0).position);
-    appendPointToPolygon(
-      polygon, tier4_autoware_utils::calcOffsetPose(pose, radius, radius, 0.0).position);
+    constexpr int circle_discrete_num = 6;
+    for (int i = 0; i < circle_discrete_num; ++i) {
+      geometry_msgs::msg::Point point;
+      point.x = std::cos(
+                  (static_cast<double>(i) / static_cast<double>(circle_discrete_num)) * 2.0 * M_PI +
+                  M_PI / static_cast<double>(circle_discrete_num)) *
+                  radius +
+                pose.position.x;
+      point.y = std::sin(
+                  (static_cast<double>(i) / static_cast<double>(circle_discrete_num)) * 2.0 * M_PI +
+                  M_PI / static_cast<double>(circle_discrete_num)) *
+                  radius +
+                pose.position.y;
+      appendPointToPolygon(polygon, point);
+    }
+
+    // NOTE: push back the first point in order to close polygon
+    appendPointToPolygon(polygon, polygon.outer().front());
   } else if (shape.type == autoware_auto_perception_msgs::msg::Shape::POLYGON) {
     for (const auto point : shape.footprint.points) {
       appendPointToPolygon(polygon, point);
     }
-    if (shape.footprint.points.size() > 0) {
-      appendPointToPolygon(polygon, shape.footprint.points.front());
+    if (polygon.outer().size() > 0) {
+      // NOTE: push back the first point in order to close polygon
+      appendPointToPolygon(polygon, polygon.outer().front());
     }
   } else {
     throw std::logic_error("The shape type is not supported in obstacle_velocity_planner.");
