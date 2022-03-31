@@ -57,12 +57,12 @@ public:
   // 2. generateTrajectory
   //   returns trajectory with planned velocity
   virtual boost::optional<size_t> getZeroVelocityIndexWithVelocityLimit(
-    const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit) { return {}; };
+    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data, [[maybe_unused]] boost::optional<VelocityLimit> & vel_limit) { return {}; };
 
   virtual Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data) { return Trajectory{}; }
+    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data) { return Trajectory{}; }
 
-  virtual void updateParam(const std::vector<rclcpp::Parameter> & parameters) {}
+  virtual void updateParam([[maybe_unused]] const std::vector<rclcpp::Parameter> & parameters) {}
 
   // TODO(shimizu) remove this function
   void setMaps(

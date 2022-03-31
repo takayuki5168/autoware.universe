@@ -21,6 +21,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <tier4_autoware_utils/ros/self_pose_listener.hpp>
+#include "signal_processing/lowpass_filter_1d.hpp"
 
 #include <autoware_auto_mapping_msgs/msg/had_map_bin.hpp>
 #include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
@@ -32,7 +33,6 @@
 #include <tier4_debug_msgs/msg/float32_stamped.hpp>
 #include <tier4_planning_msgs/msg/velocity_limit.hpp>
 #include <tier4_planning_msgs/msg/velocity_limit_clear_command.hpp>
-#include <tier4_planning_msgs/msg/stop_reason_array.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <boost/optional.hpp>
@@ -91,6 +91,10 @@ private:
 
   Trajectory generateRuleBaseTrajectory(const ObstacleVelocityPlannerData & planner_data);
 
+  double calcCurrentAccel() const;
+
+  std::shared_ptr<LowpassFilter1d> lpf_acc_{nullptr};
+
   // ROS related members
   // Subscriber
   rclcpp::Subscription<Trajectory>::SharedPtr trajectory_sub_;
@@ -105,8 +109,7 @@ private:
   rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<VelocityLimit>::SharedPtr vel_limit_pub_;
   rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr clear_vel_limit_pub_;
-  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr stop_reason_diag_pub_;
-  rclcpp::Publisher<tier4_planning_msgs::msg::StopReasonArray>::SharedPtr stop_reason_pub_;
+
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
 
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
@@ -130,7 +133,7 @@ private:
   // Data for callback functions
   PredictedObjects::SharedPtr in_objects_ptr_;
   geometry_msgs::msg::TwistStamped::SharedPtr current_twist_ptr_;
-  geometry_msgs::msg::TwistStamped::SharedPtr previous_twist_ptr_;
+  geometry_msgs::msg::TwistStamped::SharedPtr prev_twist_ptr_;
 
   PlanningMethod planning_method_;
   std::unique_ptr<PlannerInterface> planner_ptr_;

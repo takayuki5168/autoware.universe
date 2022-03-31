@@ -74,6 +74,7 @@ struct ObstacleVelocityPlannerData
   autoware_auto_planning_msgs::msg::Trajectory traj;
   geometry_msgs::msg::Pose current_pose;
   double current_vel;
+  double current_acc;
   // double external_velocity_limit;
   std::vector<TargetObstacle> target_obstacles;
 };

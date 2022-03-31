@@ -105,6 +105,36 @@ size_t getIndexWithLongitudinalOffset(
   }
   return 0;
 }
+
+double calcMinimumDistanceToStop(const double initial_vel, const double min_acc)
+{
+  return -std::pow(initial_vel, 2) / 2.0 / min_acc;
+}
+
+tier4_planning_msgs::msg::StopReasonArray makeStopReasonArray(const rclcpp::Time & current_time, const geometry_msgs::msg::Pose & stop_pose)
+{
+  // create header
+  std_msgs::msg::Header header;
+  header.frame_id = "map";
+  header.stamp = current_time;
+
+  // create stop factor
+  tier4_planning_msgs::msg::StopFactor stop_factor;
+  stop_factor.stop_pose = stop_pose;
+  // TODO(murooka)
+  // stop_factor.stop_factor_points.emplace_back();
+
+  // create stop reason stamped
+  tier4_planning_msgs::msg::StopReason stop_reason_msg;
+  stop_reason_msg.reason = tier4_planning_msgs::msg::StopReason::OBSTACLE_STOP;
+  stop_reason_msg.stop_factors.emplace_back(stop_factor);
+
+  // create stop reason array
+  tier4_planning_msgs::msg::StopReasonArray stop_reason_array;
+  stop_reason_array.header = header;
+  stop_reason_array.stop_reasons.emplace_back(stop_reason_msg);
+  return stop_reason_array;
+}
 }  // namespace
 
   RuleBasedPlanner::RuleBasedPlanner(
@@ -134,6 +164,9 @@ size_t getIndexWithLongitudinalOffset(
     strong_min_accel_ = node.declare_parameter<double>("rule_based_planner.strong_min_accel");
 
     // Publisher
+    stop_reasons_pub_ =
+      node.create_publisher<tier4_planning_msgs::msg::StopReasonArray>("~/output/stop_reasons", 1);
+    stop_speed_exceeded_pub_ = node.create_publisher<StopSpeedExceeded>("~/output/stop_speed_exceeded", 1);
     debug_wall_marker_pub_ =
       node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
     debug_rss_wall_marker_pub_ =
@@ -153,23 +186,22 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
   boost::optional<double> min_dist_to_slow_down;
   for (const auto & obstacle : planner_data.target_obstacles) {
     /*
-    // calculate current obstacle pose
-    const auto current_obstacle_pose = obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath(
-        obstacle.predicted_paths.at(0), obstacle.time_stamp, planner_data.current_time);
-   if (!current_obstacle_pose) {
-     continue;
-   }
-   const double actual_dist = tier4_autoware_utils::calcSignedArcLength(
-                                                                        planner_data.traj.points, planner_data.current_pose.position, current_obstacle_pose->position);
-   */
-
-    const double distance_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
-                                                                                           planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
+    // interpolate current obstacle pose
+    const auto current_interpolated_obstacle_pose = obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath(
+      obstacle.predicted_paths.at(0), obstacle.time_stamp, planner_data.current_time);
+    if (!current_interpolated_obstacle_pose) {
+      continue;
+    }
+    const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
+      planner_data.traj.points, planner_data.current_pose.position, current_interpolated_obstacle_pose->position);
+    */
+    const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
+      planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
 
     if (std::abs(obstacle.velocity) < max_obj_velocity_for_stop_) {  // stop
       // calculate distance to stop
       // TODO vehicle offset
-      const double distance_to_stop_with_acc_limit = [&]() {
+      const double dist_to_stop_with_acc_limit = [&]() {
         constexpr double epsilon = 1e-6;
         if (planner_data.current_vel < epsilon) {
           return 0.0;
@@ -180,22 +212,25 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
                std::pow(time_to_stop_with_acc_limit, 2);
       }();
 
-      const double distance_to_stop =
-        std::max(distance_to_obstacle, distance_to_stop_with_acc_limit) -
+      const double dist_to_stop =
+        std::max(dist_to_obstacle, dist_to_stop_with_acc_limit) -
         safe_distance_margin_;
-      if (!min_dist_to_stop || distance_to_stop < min_dist_to_stop.get()) {
-        min_dist_to_stop = distance_to_stop;
+      [&]() {
+        if (min_dist_to_stop && dist_to_stop > min_dist_to_stop.get()) {
+          return;
+        }
+        min_dist_to_stop = dist_to_stop;
 
         // calculate error distance
-        const double error_dist = distance_to_obstacle - distance_to_stop;
+        const double error_dist = dist_to_obstacle - dist_to_stop;
 
         // update debug values
-        debug_values_.setValues(DebugValues::TYPE::STOP_CURRENT_OBJECT_DISTANCE, distance_to_obstacle);
+        debug_values_.setValues(DebugValues::TYPE::STOP_CURRENT_OBJECT_DISTANCE, dist_to_obstacle);
         debug_values_.setValues(DebugValues::TYPE::STOP_CURRENT_OBJECT_VELOCITY, obstacle.velocity);
-        debug_values_.setValues(DebugValues::TYPE::STOP_TARGET_OBJECT_DISTANCE, distance_to_stop);
+        debug_values_.setValues(DebugValues::TYPE::STOP_TARGET_OBJECT_DISTANCE, dist_to_stop);
         debug_values_.setValues(DebugValues::TYPE::STOP_TARGET_ACCELERATION, longitudinal_info_.min_accel);
         debug_values_.setValues(DebugValues::TYPE::STOP_ERROR_OBJECT_DISTANCE, error_dist);
-      }
+      }();
     } else {  // adaptive cruise
       // calculate distance between ego and obstacle based on RSS
       const double rss_dist =
@@ -204,18 +239,23 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
         rss_dist + vehicle_info_.max_longitudinal_offset_m + obstacle.shape.dimensions.x / 2.0;
 
       // calculate error distance
-      const double error_dist = distance_to_obstacle - rss_dist_with_vehicle_offset;
+      const double error_dist = dist_to_obstacle - rss_dist_with_vehicle_offset;
 
-      if (!min_dist_to_slow_down || error_dist < min_dist_to_slow_down.get()) {
+      [&]() {
+        if (min_dist_to_slow_down && error_dist > min_dist_to_slow_down.get()) {
+          return;
+        }
         min_dist_to_slow_down = error_dist;
 
         // update debug values
         debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_CURRENT_OBJECT_VELOCITY, obstacle.velocity);
-        debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_CURRENT_OBJECT_DISTANCE, distance_to_obstacle);
+        debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_CURRENT_OBJECT_DISTANCE, dist_to_obstacle);
         debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_OBJECT_DISTANCE, rss_dist_with_vehicle_offset);
-      }
+      }();
     }
   }
+
+  bool will_collide_with_obstacle = false;
 
   // do stop
   boost::optional<size_t> zero_vel_idx = {};
@@ -227,6 +267,12 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
     // set zero velocity index
     zero_vel_idx = doStop(planner_data, dist_to_stop);
+
+    // check if the ego will collide with the obstacle
+    const double feasible_dist_to_stop = calcMinimumDistanceToStop(planner_data.current_vel, longitudinal_info_.min_accel);
+    if (dist_to_stop < feasible_dist_to_stop) {
+      will_collide_with_obstacle = true;
+    }
   }
 
   // do slow down
@@ -245,9 +291,22 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     prev_target_vel_ = {};
   }
 
+  // pulish stop_speed_exceeded if the ego will collide with the obstacle
+  StopSpeedExceeded msg{};
+  msg.stamp = planner_data.current_time;
+  msg.stop_speed_exceeded = will_collide_with_obstacle;
+  stop_speed_exceeded_pub_->publish(msg);
+
   // publish debug values
   const auto debug_values_msg = convertDebugValuesToMsg(planner_data.current_time, debug_values_);
   debug_values_pub_->publish(debug_values_msg);
+
+  // publish stop reason
+  if (zero_vel_idx) {
+    const auto stop_pose = planner_data.traj.points.at(zero_vel_idx.get()).pose;
+    const auto stop_reasons_msg = makeStopReasonArray(planner_data.current_time, stop_pose);
+    stop_reasons_pub_->publish(stop_reasons_msg);
+  }
 
   return zero_vel_idx;
 }
@@ -285,7 +344,7 @@ VelocityLimit RuleBasedPlanner::doSlowDown(const ObstacleVelocityPlannerData & p
 
     // calculate target velocity with acceleration limit by PID controller
     const double diff_vel = pid_controller_->calc(dist_to_slow_down);
-    const double prev_vel = prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
+    [[maybe_unused]] const double prev_vel = prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
     const double additional_vel = diff_vel;
     // std::clamp(diff_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel * 0.1);
     // // TODO(murooka) accel * 0.1 (time step)

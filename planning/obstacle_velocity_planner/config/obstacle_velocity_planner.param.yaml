@@ -25,7 +25,7 @@
 
       max_obj_velocity_for_stop : 1.0
       safe_distance_margin : 5.0
-      strong_min_accel : -2.0
+      strong_min_accel : -3.0
 
     optimization_based_planner:
       resampling_s_interval: 2.0

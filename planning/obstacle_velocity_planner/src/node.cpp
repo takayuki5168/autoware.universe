@@ -107,59 +107,6 @@ VelocityLimitClearCommand createVelocityLimitClearCommandMsg(const rclcpp::Time 
   msg.command = true;
   return msg;
 }
-
-std::string jsonDumpsPose(const geometry_msgs::msg::Pose & pose)
-{
-  const std::string json_dumps_pose =
-    (boost::format(
-       R"({"position":{"x":%lf,"y":%lf,"z":%lf},"orientation":{"w":%lf,"x":%lf,"y":%lf,"z":%lf}})") %
-     pose.position.x % pose.position.y % pose.position.z % pose.orientation.w % pose.orientation.x %
-     pose.orientation.y % pose.orientation.z)
-      .str();
-  return json_dumps_pose;
-}
-
-diagnostic_msgs::msg::DiagnosticStatus makeStopReasonDiag(
-  const std::string stop_reason, const geometry_msgs::msg::Pose & stop_pose)
-{
-  diagnostic_msgs::msg::KeyValue stop_reason_diag_kv;
-  stop_reason_diag_kv.key = "stop_pose";
-  stop_reason_diag_kv.value = jsonDumpsPose(stop_pose);
-
-  diagnostic_msgs::msg::DiagnosticStatus stop_reason_diag;
-  stop_reason_diag.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-  stop_reason_diag.name = "stop_reason";
-  stop_reason_diag.message = stop_reason;
-  stop_reason_diag.values.push_back(stop_reason_diag_kv);
-
-  return stop_reason_diag;
-}
-
-
-tier4_planning_msgs::msg::StopReasonArray makeStopReasonArray(const rclcpp::Time & current_time, const geometry_msgs::msg::Pose & stop_pose)
-{
-  // create header
-  std_msgs::msg::Header header;
-  header.frame_id = "map";
-  header.stamp = current_time;
-
-  // create stop factor
-  tier4_planning_msgs::msg::StopFactor stop_factor;
-  stop_factor.stop_pose = stop_pose;
-  // TODO(murooka)
-  // stop_factor.stop_factor_points.emplace_back();
-
-  // create stop reason stamped
-  tier4_planning_msgs::msg::StopReason stop_reason_msg;
-  stop_reason_msg.reason = tier4_planning_msgs::msg::StopReason::OBSTACLE_STOP;
-  stop_reason_msg.stop_factors.emplace_back(stop_factor);
-
-  // create stop reason array
-  tier4_planning_msgs::msg::StopReasonArray stop_reason_array;
-  stop_reason_array.header = header;
-  stop_reason_array.stop_reasons.emplace_back(stop_reason_msg);
-  return stop_reason_array;
-}
 }  // namespace
 
 namespace motion_planning
@@ -199,10 +146,6 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   vel_limit_pub_ = create_publisher<VelocityLimit>("~/output/velocity_limit", 1);
   clear_vel_limit_pub_ =
     create_publisher<VelocityLimitClearCommand>("~/output/clear_velocity_limit", 1);
-  stop_reason_diag_pub_ =
-    create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("~/output/stop_reason", 1);
-  stop_reason_pub_ =
-    create_publisher<tier4_planning_msgs::msg::StopReasonArray>("~/output/stop_reasons", 1);
   debug_marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/marker", 1);
 
   // Obstacle
@@ -248,6 +191,8 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   // set parameter callback
   set_param_res_ = this->add_on_set_parameters_callback(
     std::bind(&ObstacleVelocityPlannerNode::paramCallback, this, std::placeholders::_1));
+
+  lpf_acc_ = std::make_shared<LowpassFilter1d>(0.0, 0.2);
 }
 
 rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallback(
@@ -284,6 +229,10 @@ void ObstacleVelocityPlannerNode::objectsCallback(const PredictedObjects::Shared
 
 void ObstacleVelocityPlannerNode::odomCallback(const Odometry::SharedPtr msg)
 {
+  if (current_twist_ptr_) {
+    prev_twist_ptr_ = current_twist_ptr_;
+  }
+
   current_twist_ptr_ = std::make_unique<geometry_msgs::msg::TwistStamped>();
   current_twist_ptr_->header = msg->header;
   current_twist_ptr_->twist = msg->twist.twist;
@@ -309,7 +258,7 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
 
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (msg->points.empty() || !current_twist_ptr_ || !in_objects_ptr_) {
+  if (msg->points.empty() || !current_twist_ptr_ || !prev_twist_ptr_ || !in_objects_ptr_) {
     return;
   }
 
@@ -322,6 +271,7 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
   planner_data.traj = *msg;
   planner_data.current_pose = self_pose_listener_.getCurrentPose()->pose;
   planner_data.current_vel = current_twist_ptr_->twist.linear.x;
+  planner_data.current_acc = calcCurrentAccel();
   // planner_data.external_velocity_limit = external_velocity_limit_;
   planner_data.target_obstacles = filterObstacles(
     obstacles, planner_data.traj, planner_data.current_pose, planner_data.current_vel);
@@ -338,14 +288,6 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
 
     if (zero_vel_idx) {
       output.points.at(zero_vel_idx.get()).longitudinal_velocity_mps = 0.0;
-
-      const auto stop_pose = output.points.at(zero_vel_idx.get()).pose;
-      // publish stop reason
-      const auto stop_reason_diag = makeStopReasonDiag("obstacle", stop_pose);
-      stop_reason_diag_pub_->publish(stop_reason_diag);
-
-      const auto stop_reason_msg = makeStopReasonArray(planner_data.current_time, stop_pose);
-      stop_reason_pub_->publish(stop_reason_msg);
     }
 
     if (vel_limit) {
@@ -365,8 +307,22 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
   // Publish trajectory
   trajectory_pub_->publish(output);
 
-  const double elapsed_time = stop_watch.toc();
+  [[maybe_unused]] const double elapsed_time = stop_watch.toc();
   // RCLCPP_WARN_STREAM(get_logger(), elapsed_time);
+}
+
+double ObstacleVelocityPlannerNode::calcCurrentAccel() const
+{
+  const double diff_vel = current_twist_ptr_->twist.linear.x -
+    prev_twist_ptr_->twist.linear.x;
+  const double diff_time =
+    std::max(
+    (rclcpp::Time(current_twist_ptr_->header.stamp) -
+    rclcpp::Time(prev_twist_ptr_->header.stamp)).seconds(), 1e-03);
+
+  const double accel = diff_vel / diff_time;
+
+  return lpf_acc_->filter(accel);
 }
 
 std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(

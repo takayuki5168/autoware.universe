@@ -42,6 +42,30 @@ void appendPointToPolygon(Polygon2d & polygon, const Point2d point)
 {
   bg::append(polygon.outer(), point);
 }
+
+bool isClockWise(const Polygon2d & polygon)
+{
+  const int n = polygon.outer().size();
+  const double x_offset = polygon.outer().at(0).x();
+  const double y_offset = polygon.outer().at(0).y();
+  double sum = 0.0;
+  for (std::size_t i = 0; i < polygon.outer().size(); ++i) {
+    sum +=
+      (polygon.outer().at(i).x() - x_offset) * (polygon.outer().at((i + 1) % n).y() - y_offset) -
+      (polygon.outer().at(i).y() - y_offset) * (polygon.outer().at((i + 1) % n).x() - x_offset);
+  }
+
+  return sum < 0.0;
+}
+
+Polygon2d inverseClockWise(const Polygon2d & polygon)
+{
+  Polygon2d inverted_polygon;
+  for (int i = polygon.outer().size() - 1; 0 <= i; --i) {
+    inverted_polygon.outer().push_back(polygon.outer().at(i));
+  }
+  return inverted_polygon;
+}
 }  // namespace
 
 namespace polygon_utils
@@ -104,7 +128,7 @@ Polygon2d convertObstacleToPolygon(
     throw std::logic_error("The shape type is not supported in obstacle_velocity_planner.");
   }
 
-  return polygon;
+  return isClockWise(polygon) ? polygon : inverseClockWise(polygon);
 }
 
 boost::optional<size_t> getFirstCollisionIndex(

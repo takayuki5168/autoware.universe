@@ -21,7 +21,7 @@
 
 namespace
 {
-rclcpp::Duration safeSubtraction(const rclcpp::Time & t1, const rclcpp::Time & t2)
+[[maybe_unused]] rclcpp::Duration safeSubtraction(const rclcpp::Time & t1, const rclcpp::Time & t2)
 {
   rclcpp::Duration duration = rclcpp::Duration::from_seconds(0.0);
   try {

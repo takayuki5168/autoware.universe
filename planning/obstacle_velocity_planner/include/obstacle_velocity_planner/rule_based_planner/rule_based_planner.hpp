@@ -21,12 +21,15 @@
 
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "tier4_debug_msgs/msg/float32_multi_array_stamped.hpp"
+#include "tier4_planning_msgs/msg/stop_speed_exceeded.hpp"
+#include "tier4_planning_msgs/msg/stop_reason_array.hpp"
 
 #include <boost/optional.hpp>
 #include <memory>
 #include <vector>
 
 using tier4_debug_msgs::msg::Float32MultiArrayStamped;
+using tier4_planning_msgs::msg::StopSpeedExceeded;
 
 class RuleBasedPlanner : public PlannerInterface
 {
@@ -51,6 +54,8 @@ private:
   double strong_min_accel_;
 
   // Publisher
+  rclcpp::Publisher<tier4_planning_msgs::msg::StopReasonArray>::SharedPtr stop_reasons_pub_;
+  rclcpp::Publisher<StopSpeedExceeded>::SharedPtr stop_speed_exceeded_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_rss_wall_marker_pub_;
   rclcpp::Publisher<Float32MultiArrayStamped>::SharedPtr debug_values_pub_;

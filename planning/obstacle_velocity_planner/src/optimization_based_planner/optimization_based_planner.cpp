@@ -29,7 +29,7 @@ constexpr double CLOSE_S_DIST_THRESHOLD = 1e-3;
 // TODO(shimizu) Is is ok to use planner_data.current_time instead of get_clock()->now()?
 namespace
 {
-std::string toHexString(const unique_identifier_msgs::msg::UUID & id)
+[[maybe_unused]] std::string toHexString(const unique_identifier_msgs::msg::UUID & id)
 {
   std::stringstream ss;
   for (auto i = 0; i < 16; ++i) {
@@ -449,7 +449,7 @@ double OptimizationBasedPlanner::getClosestStopDistance(
       getDistanceToCollisionPoint(ego_traj_data, obj_data, current_delta_yaw_threshold);
 
     // Calculate Safety Distance
-    const double ego_vehicle_offset = vehicle_info_.wheel_base_m;
+    const double ego_vehicle_offset = vehicle_info_.wheel_base_m
     +vehicle_info_.front_overhang_m;
     const double object_offset = obj_data.length / 2.0;
     const double safety_distance = ego_vehicle_offset + object_offset + safe_distance_margin_;
@@ -487,9 +487,9 @@ double OptimizationBasedPlanner::getClosestStopDistance(
       *predicted_path, closest_obj.get().time_stamp, current_time);
     const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(
       ego_traj_data.traj.points, current_object_pose.get().position);
-    const double ego_yaw = tf2::getYaw(ego_traj_data.traj.points.at(nearest_idx).pose.orientation);
-    const double obj_yaw = tf2::getYaw(current_object_pose.get().orientation);
-    const double diff_yaw = tier4_autoware_utils::normalizeRadian(obj_yaw - ego_yaw);
+    [[maybe_unused]] const double ego_yaw = tf2::getYaw(ego_traj_data.traj.points.at(nearest_idx).pose.orientation);
+    [[maybe_unused]] const double obj_yaw = tf2::getYaw(current_object_pose.get().orientation);
+    [[maybe_unused]] const double diff_yaw = tier4_autoware_utils::normalizeRadian(obj_yaw - ego_yaw);
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Closest Object Distance %f", closest_obj_distance);
