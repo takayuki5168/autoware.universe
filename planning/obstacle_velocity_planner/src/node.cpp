@@ -503,7 +503,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
             // and does not collide with ego in a certain time.
             RCLCPP_INFO_EXPRESSION(
               get_logger(), true, "Ignore inside obstacles since it will not collide with the ego.");
-            continue;
+            // continue;
           }
         }
       }
