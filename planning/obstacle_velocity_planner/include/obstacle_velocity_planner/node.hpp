@@ -18,10 +18,10 @@
 #include "obstacle_velocity_planner/common_structs.hpp"
 #include "obstacle_velocity_planner/optimization_based_planner/optimization_based_planner.hpp"
 #include "obstacle_velocity_planner/rule_based_planner/rule_based_planner.hpp"
+#include "signal_processing/lowpass_filter_1d.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <tier4_autoware_utils/ros/self_pose_listener.hpp>
-#include "signal_processing/lowpass_filter_1d.hpp"
 
 #include <autoware_auto_mapping_msgs/msg/had_map_bin.hpp>
 #include <autoware_auto_perception_msgs/msg/predicted_object.hpp>
@@ -43,6 +43,7 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 using autoware_auto_mapping_msgs::msg::HADMapBin;
@@ -53,9 +54,9 @@ using autoware_auto_perception_msgs::msg::PredictedPath;
 using autoware_auto_planning_msgs::msg::Trajectory;
 using autoware_auto_planning_msgs::msg::TrajectoryPoint;
 using nav_msgs::msg::Odometry;
+using tier4_planning_msgs::msg::StopReasonArray;
 using tier4_planning_msgs::msg::VelocityLimit;
 using tier4_planning_msgs::msg::VelocityLimitClearCommand;
-using tier4_planning_msgs::msg::StopReasonArray;
 using vehicle_info_util::VehicleInfo;
 
 namespace motion_planning
@@ -64,9 +65,10 @@ class ObstacleVelocityPlannerNode : public rclcpp::Node
 {
 public:
   explicit ObstacleVelocityPlannerNode(const rclcpp::NodeOptions & node_options);
+  enum class PlanningMethod { OPTIMIZATION_BASE, RULE_BASE, INVALID };
 
 private:
-  enum class PlanningMethod { OPTIMIZATION_BASE, RULE_BASE };
+  PlanningMethod getPlanningMethodType(const std::string & param) const;
 
   // Callback Functions
   rcl_interfaces::msg::SetParametersResult paramCallback(

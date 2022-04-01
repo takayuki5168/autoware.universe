@@ -22,6 +22,7 @@
 #include <tier4_autoware_utils/trajectory/tmp_conversion.hpp>
 
 #include <boost/format.hpp>
+
 #include <algorithm>
 #include <chrono>
 
@@ -112,10 +113,7 @@ VelocityLimitClearCommand createVelocityLimitClearCommandMsg(const rclcpp::Time 
 namespace motion_planning
 {
 ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptions & node_options)
-: Node("obstacle_velocity_planner", node_options),
-  self_pose_listener_(this),
-  planning_method_(PlanningMethod::RULE_BASE)
-// planning_method_(PlanningMethod::OPTIMIZATION_BASE)
+: Node("obstacle_velocity_planner", node_options), self_pose_listener_(this)
 {
   using std::placeholders::_1;
 
@@ -154,13 +152,15 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   // Vehicle Parameters
   vehicle_info_ = vehicle_info_util::VehicleInfoUtil(*this).getVehicleInfo();
 
-  // Common parameters
-  const double max_accel = declare_parameter("common.max_accel", 1.0);
-  const double min_accel = declare_parameter("common.min_accel", -1.0);
-  const double max_jerk = declare_parameter("common.max_jerk", 1.0);
-  const double min_jerk = declare_parameter("common.min_jerk", -1.0);
-  const double min_object_accel = declare_parameter("common.min_object_accel", -3.0);
-  const double idling_time = declare_parameter("common.idling_time", 2.0);
+  // longitudinal_info
+  const double max_accel = declare_parameter<double>("common.max_accel");
+  const double min_accel = declare_parameter<double>("common.min_accel");
+  const double max_jerk = declare_parameter<double>("common.max_jerk");
+  const double min_jerk = declare_parameter<double>("common.min_jerk");
+  const double min_object_accel = declare_parameter<double>("common.min_object_accel");
+  const double idling_time = declare_parameter<double>("common.idling_time");
+  const auto longitudinal_info =
+    LongitudinalInfo(max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time);
 
   // Obstacle filtering parameters
   detection_area_expand_width_ =
@@ -176,14 +176,18 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   // Wait for first self pose
   self_pose_listener_.waitForFirstPose();
 
+  // planning method
+  const std::string planning_method_param =
+    declare_parameter<std::string>("common.planning_method");
+  planning_method_ = getPlanningMethodType(planning_method_param);
+
   if (planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
-    planner_ptr_ = std::make_unique<OptimizationBasedPlanner>(
-      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time,
-      vehicle_info_);
+    std::cerr << "PO1" << std::endl;
+    planner_ptr_ =
+      std::make_unique<OptimizationBasedPlanner>(*this, longitudinal_info, vehicle_info_);
   } else if (planning_method_ == PlanningMethod::RULE_BASE) {
-    planner_ptr_ = std::make_unique<RuleBasedPlanner>(
-      *this, max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time,
-      vehicle_info_);
+    std::cerr << "PO2" << std::endl;
+    planner_ptr_ = std::make_unique<RuleBasedPlanner>(*this, longitudinal_info, vehicle_info_);
   } else {
     std::logic_error("Designated method is not supported.");
   }
@@ -195,9 +199,21 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   lpf_acc_ = std::make_shared<LowpassFilter1d>(0.0, 0.2);
 }
 
+ObstacleVelocityPlannerNode::PlanningMethod ObstacleVelocityPlannerNode::getPlanningMethodType(
+  const std::string & param) const
+{
+  if (param == "rule_base") {
+    return PlanningMethod::RULE_BASE;
+  } else if (param == "optimization_base") {
+    return PlanningMethod::OPTIMIZATION_BASE;
+  }
+  return PlanningMethod::INVALID;
+}
+
 rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallback(
   const std::vector<rclcpp::Parameter> & parameters)
 {
+  planner_ptr_->updateCommonParam(parameters);
   planner_ptr_->updateParam(parameters);
 
   rcl_interfaces::msg::SetParametersResult result;
@@ -216,7 +232,7 @@ void ObstacleVelocityPlannerNode::mapCallback(const HADMapBin::ConstSharedPtr ms
   lanelet::utils::conversion::fromBinMsg(
     *msg, lanelet_map_ptr, &traffic_rules_ptr, &routing_graph_ptr);
 
-  if (planner_ptr_ && planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
+  if (planner_ptr_) {
     planner_ptr_->setMaps(lanelet_map_ptr, traffic_rules_ptr, routing_graph_ptr);
     RCLCPP_INFO(get_logger(), "[Obstacle Velocity Planner]: Map is loaded");
   }
@@ -284,7 +300,8 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
     output = planner_data.traj;
 
     boost::optional<VelocityLimit> vel_limit;
-    const auto zero_vel_idx = planner_ptr_->getZeroVelocityIndexWithVelocityLimit(planner_data, vel_limit);
+    const auto zero_vel_idx =
+      planner_ptr_->getZeroVelocityIndexWithVelocityLimit(planner_data, vel_limit);
 
     if (zero_vel_idx) {
       output.points.at(zero_vel_idx.get()).longitudinal_velocity_mps = 0.0;
@@ -313,12 +330,11 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
 
 double ObstacleVelocityPlannerNode::calcCurrentAccel() const
 {
-  const double diff_vel = current_twist_ptr_->twist.linear.x -
-    prev_twist_ptr_->twist.linear.x;
-  const double diff_time =
-    std::max(
-    (rclcpp::Time(current_twist_ptr_->header.stamp) -
-    rclcpp::Time(prev_twist_ptr_->header.stamp)).seconds(), 1e-03);
+  const double diff_vel = current_twist_ptr_->twist.linear.x - prev_twist_ptr_->twist.linear.x;
+  const double diff_time = std::max(
+    (rclcpp::Time(current_twist_ptr_->header.stamp) - rclcpp::Time(prev_twist_ptr_->header.stamp))
+      .seconds(),
+    1e-03);
 
   const double accel = diff_vel / diff_time;
 

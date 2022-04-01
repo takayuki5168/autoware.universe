@@ -56,70 +56,89 @@ inline tf2::Vector3 getTransVector3(
 }
 }  // namespace
 
-  OptimizationBasedPlanner::OptimizationBasedPlanner(
-    rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
-    const double min_jerk, const double min_object_accel, const double idling_time,
-    const vehicle_info_util::VehicleInfo & vehicle_info)
-  : PlannerInterface(
-      max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time, vehicle_info)
-  {
-    // parameter
-    resampling_s_interval_ = node.declare_parameter("resampling_s_interval", 1.0);
-    max_trajectory_length_ = node.declare_parameter("max_trajectory_length", 200.0);
-    dense_resampling_time_interval_ = node.declare_parameter("dense_resampling_time_interval", 0.1);
-    sparse_resampling_time_interval_ =
-      node.declare_parameter("sparse_resampling_time_interval", 0.5);
-    dense_time_horizon_ = node.declare_parameter("dense_time_horizon", 5.0);
-    max_time_horizon_ = node.declare_parameter("max_time_horizon", 15.0);
+OptimizationBasedPlanner::OptimizationBasedPlanner(
+  rclcpp::Node & node, const LongitudinalInfo & longitudinal_info,
+  const vehicle_info_util::VehicleInfo & vehicle_info)
+: PlannerInterface(longitudinal_info, vehicle_info)
+{
+  // parameter
+  resampling_s_interval_ =
+    node.declare_parameter<double>("optimization_based_planner.resampling_s_interval");
+  max_trajectory_length_ =
+    node.declare_parameter<double>("optimization_based_planner.max_trajectory_length");
+  dense_resampling_time_interval_ =
+    node.declare_parameter<double>("optimization_based_planner.dense_resampling_time_interval");
+  sparse_resampling_time_interval_ =
+    node.declare_parameter<double>("optimization_based_planner.sparse_resampling_time_interval");
+  dense_time_horizon_ =
+    node.declare_parameter<double>("optimization_based_planner.dense_time_horizon");
+  max_time_horizon_ = node.declare_parameter<double>("optimization_based_planner.max_time_horizon");
 
-    delta_yaw_threshold_of_nearest_index_ = tier4_autoware_utils::deg2rad(
-      node.declare_parameter("delta_yaw_threshold_of_nearest_index", 60.0));
-    delta_yaw_threshold_of_object_and_ego_ = tier4_autoware_utils::deg2rad(
-      node.declare_parameter("delta_yaw_threshold_of_object_and_ego", 180.0));
-    object_zero_velocity_threshold_ = node.declare_parameter("object_zero_velocity_threshold", 1.5);
-    object_low_velocity_threshold_ = node.declare_parameter("object_low_velocity_threshold", 3.0);
-    external_velocity_limit_ = node.declare_parameter("external_velocity_limit", 20.0);
-    collision_time_threshold_ = node.declare_parameter("collision_time_threshold", 10.0);
-    safe_distance_margin_ = node.declare_parameter("safe_distance_margin", 2.0);
-    t_dangerous_ = node.declare_parameter("t_dangerous", 0.5);
-    initial_velocity_margin_ = node.declare_parameter("initial_velocity_margin", 0.2);
-    enable_adaptive_cruise_ = node.declare_parameter("enable_adaptive_cruise", true);
-    use_object_acceleration_ = node.declare_parameter("use_object_acceleration", true);
-    use_hd_map_ = node.declare_parameter("use_hd_map", true);
+  delta_yaw_threshold_of_nearest_index_ =
+    tier4_autoware_utils::deg2rad(node.declare_parameter<double>(
+      "optimization_based_planner.delta_yaw_threshold_of_nearest_index"));
+  delta_yaw_threshold_of_object_and_ego_ =
+    tier4_autoware_utils::deg2rad(node.declare_parameter<double>(
+      "optimization_based_planner.delta_yaw_threshold_of_object_and_ego"));
+  object_zero_velocity_threshold_ =
+    node.declare_parameter<double>("optimization_based_planner.object_zero_velocity_threshold");
+  object_low_velocity_threshold_ =
+    node.declare_parameter<double>("optimization_based_planner.object_low_velocity_threshold");
+  external_velocity_limit_ =
+    node.declare_parameter<double>("optimization_based_planner.external_velocity_limit");
+  collision_time_threshold_ =
+    node.declare_parameter<double>("optimization_based_planner.collision_time_threshold");
+  safe_distance_margin_ =
+    node.declare_parameter<double>("optimization_based_planner.safe_distance_margin");
+  t_dangerous_ = node.declare_parameter<double>("optimization_based_planner.t_dangerous");
+  initial_velocity_margin_ =
+    node.declare_parameter<double>("optimization_based_planner.initial_velocity_margin");
+  enable_adaptive_cruise_ =
+    node.declare_parameter<bool>("optimization_based_planner.enable_adaptive_cruise");
+  use_object_acceleration_ =
+    node.declare_parameter<bool>("optimization_based_planner.use_object_acceleration");
+  use_hd_map_ = node.declare_parameter<bool>("optimization_based_planner.use_hd_map");
 
-    replan_vel_deviation_ = node.declare_parameter("replan_vel_deviation", 5.53);
-    engage_velocity_ = node.declare_parameter("engage_velocity", 0.25);
-    engage_acceleration_ = node.declare_parameter("engage_acceleration", 0.1);
-    engage_exit_ratio_ = node.declare_parameter("engage_exit_ratio", 0.5);
-    stop_dist_to_prohibit_engage_ = node.declare_parameter("stop_dist_to_prohibit_engage", 0.5);
+  replan_vel_deviation_ =
+    node.declare_parameter<double>("optimization_based_planner.replan_vel_deviation");
+  engage_velocity_ = node.declare_parameter<double>("optimization_based_planner.engage_velocity");
+  engage_acceleration_ =
+    node.declare_parameter<double>("optimization_based_planner.engage_acceleration");
+  engage_exit_ratio_ =
+    node.declare_parameter<double>("optimization_based_planner.engage_exit_ratio");
+  stop_dist_to_prohibit_engage_ =
+    node.declare_parameter<double>("optimization_based_planner.stop_dist_to_prohibit_engage");
 
-    const double max_s_weight = node.declare_parameter("max_s_weight", 10.0);
-    const double max_v_weight = node.declare_parameter("max_v_weight", 100.0);
-    const double over_s_safety_weight = node.declare_parameter("over_s_safety_weight", 1000000.0);
-    const double over_s_ideal_weight = node.declare_parameter("over_s_ideal_weight", 800.0);
-    const double over_v_weight = node.declare_parameter("over_v_weight", 500000.0);
-    const double over_a_weight = node.declare_parameter("over_a_weight", 1000.0);
-    const double over_j_weight = node.declare_parameter("over_j_weight", 50000.0);
+  const double max_s_weight =
+    node.declare_parameter<double>("optimization_based_planner.max_s_weight");
+  const double max_v_weight =
+    node.declare_parameter<double>("optimization_based_planner.max_v_weight");
+  const double over_s_safety_weight =
+    node.declare_parameter<double>("optimization_based_planner.over_s_safety_weight");
+  const double over_s_ideal_weight =
+    node.declare_parameter<double>("optimization_based_planner.over_s_ideal_weight");
+  const double over_v_weight =
+    node.declare_parameter<double>("optimization_based_planner.over_v_weight");
+  const double over_a_weight =
+    node.declare_parameter<double>("optimization_based_planner.over_a_weight");
+  const double over_j_weight =
+    node.declare_parameter<double>("optimization_based_planner.over_j_weight");
 
-    // velocity optimizer
-    velocity_optimizer_ptr_ = std::make_shared<VelocityOptimizer>(
-      max_s_weight, max_v_weight, over_s_safety_weight, over_s_ideal_weight, over_v_weight,
-      over_a_weight, over_j_weight);
+  // velocity optimizer
+  velocity_optimizer_ptr_ = std::make_shared<VelocityOptimizer>(
+    max_s_weight, max_v_weight, over_s_safety_weight, over_s_ideal_weight, over_v_weight,
+    over_a_weight, over_j_weight);
 
-    // publisher
-    optimized_sv_pub_ = node.create_publisher<Trajectory>(
-      "~/optimized_sv_trajectory", 1);
-    optimized_st_graph_pub_ = node.create_publisher<Trajectory>(
-      "~/optimized_st_graph", 1);
-    boundary_pub_ =
-      node.create_publisher<Trajectory>("~/boundary", 1);
-    distance_to_closest_obj_pub_ =
-      node.create_publisher<Float32Stamped>("~/distance_to_closest_obj", 1);
-    debug_calculation_time_ =
-      node.create_publisher<Float32Stamped>("~/calculation_time", 1);
-    debug_wall_marker_pub_ =
-      node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
-  }
+  // publisher
+  optimized_sv_pub_ = node.create_publisher<Trajectory>("~/optimized_sv_trajectory", 1);
+  optimized_st_graph_pub_ = node.create_publisher<Trajectory>("~/optimized_st_graph", 1);
+  boundary_pub_ = node.create_publisher<Trajectory>("~/boundary", 1);
+  distance_to_closest_obj_pub_ =
+    node.create_publisher<Float32Stamped>("~/distance_to_closest_obj", 1);
+  debug_calculation_time_ = node.create_publisher<Float32Stamped>("~/calculation_time", 1);
+  debug_wall_marker_pub_ =
+    node.create_publisher<visualization_msgs::msg::MarkerArray>("~/debug/wall_marker", 1);
+}
 
 Trajectory OptimizationBasedPlanner::generateTrajectory(
   const ObstacleVelocityPlannerData & planner_data)
@@ -130,6 +149,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_ERROR(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Resolution size is not enough");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -140,6 +160,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_ERROR(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Closest Index is Invalid");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -149,6 +170,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "The number of points on the trajectory data is too small");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -181,6 +203,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     for (size_t i = *closest_idx + 1; i < output_traj.points.size(); ++i) {
       output_traj.points.at(i).longitudinal_velocity_mps = 0.0;
     }
+    prev_output_ = output_traj;
     return output_traj;
   }
 
@@ -189,11 +212,13 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "The number of points on the trajectory is too small");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
   // Check if reached goal
   if (checkHasReachedGoal(planner_data.traj, *closest_idx, v0) || !enable_adaptive_cruise_) {
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -204,6 +229,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "The number of points on the resampled trajectory data is too small");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -213,6 +239,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "No Dangerous Objects around the ego vehicle");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -256,6 +283,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Processed Result is empty");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
   const auto & opt_position = processed_result->s;
@@ -268,11 +296,13 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     for (size_t i = *closest_idx + 1; i < output.points.size(); ++i) {
       output.points.at(i).longitudinal_velocity_mps = 0.0;
     }
+    prev_output_ = output;
     return output;
   } else if (opt_position.size() == 1) {
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Optimized Trajectory is too small");
+    prev_output_ = planner_data.traj;
     return planner_data.traj;
   }
 
@@ -414,8 +444,7 @@ double OptimizationBasedPlanner::getClosestStopDistance(
       obj.classification.label != ObjectClassification::CAR &&
       obj.classification.label != ObjectClassification::TRUCK &&
       obj.classification.label != ObjectClassification::BUS &&
-      obj.classification.label !=
-        ObjectClassification::MOTORCYCLE) {
+      obj.classification.label != ObjectClassification::MOTORCYCLE) {
       continue;
     }
 
@@ -449,8 +478,7 @@ double OptimizationBasedPlanner::getClosestStopDistance(
       getDistanceToCollisionPoint(ego_traj_data, obj_data, current_delta_yaw_threshold);
 
     // Calculate Safety Distance
-    const double ego_vehicle_offset = vehicle_info_.wheel_base_m
-    +vehicle_info_.front_overhang_m;
+    const double ego_vehicle_offset = vehicle_info_.wheel_base_m + vehicle_info_.front_overhang_m;
     const double object_offset = obj_data.length / 2.0;
     const double safety_distance = ego_vehicle_offset + object_offset + safe_distance_margin_;
 
@@ -487,9 +515,11 @@ double OptimizationBasedPlanner::getClosestStopDistance(
       *predicted_path, closest_obj.get().time_stamp, current_time);
     const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(
       ego_traj_data.traj.points, current_object_pose.get().position);
-    [[maybe_unused]] const double ego_yaw = tf2::getYaw(ego_traj_data.traj.points.at(nearest_idx).pose.orientation);
+    [[maybe_unused]] const double ego_yaw =
+      tf2::getYaw(ego_traj_data.traj.points.at(nearest_idx).pose.orientation);
     [[maybe_unused]] const double obj_yaw = tf2::getYaw(current_object_pose.get().orientation);
-    [[maybe_unused]] const double diff_yaw = tier4_autoware_utils::normalizeRadian(obj_yaw - ego_yaw);
+    [[maybe_unused]] const double diff_yaw =
+      tier4_autoware_utils::normalizeRadian(obj_yaw - ego_yaw);
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Closest Object Distance %f", closest_obj_distance);
@@ -503,9 +533,8 @@ double OptimizationBasedPlanner::getClosestStopDistance(
 
 // v0, a0
 std::tuple<double, double> OptimizationBasedPlanner::calcInitialMotion(
-  const double current_vel, const Trajectory & input_traj,
-  const size_t input_closest, const Trajectory & prev_traj,
-  const double closest_stop_dist)
+  const double current_vel, const Trajectory & input_traj, const size_t input_closest,
+  const Trajectory & prev_traj, const double closest_stop_dist)
 {
   const double vehicle_speed{std::abs(current_vel)};
   const double target_vel{std::abs(input_traj.points.at(input_closest).longitudinal_velocity_mps)};
@@ -589,10 +618,8 @@ std::tuple<double, double> OptimizationBasedPlanner::calcInitialMotion(
   return std::make_tuple(initial_vel, initial_acc);
 }
 
-TrajectoryPoint
-OptimizationBasedPlanner::calcInterpolatedTrajectoryPoint(
-  const Trajectory & trajectory,
-  const geometry_msgs::msg::Pose & target_pose)
+TrajectoryPoint OptimizationBasedPlanner::calcInterpolatedTrajectoryPoint(
+  const Trajectory & trajectory, const geometry_msgs::msg::Pose & target_pose)
 {
   TrajectoryPoint traj_p{};
   traj_p.pose = target_pose;
@@ -635,8 +662,7 @@ OptimizationBasedPlanner::calcInterpolatedTrajectoryPoint(
 }
 
 bool OptimizationBasedPlanner::checkHasReachedGoal(
-  const Trajectory & traj, const size_t closest_idx,
-  const double v0)
+  const Trajectory & traj, const size_t closest_idx, const double v0)
 {
   // If goal is close and current velocity is low, we don't optimize trajectory
   const auto closest_stop_id = tier4_autoware_utils::searchZeroVelocityIndex(traj.points);
@@ -719,8 +745,7 @@ OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::resampleTraje
 
 // TODO(murooka) what is the difference with applylienar interpolation
 Trajectory OptimizationBasedPlanner::resampleTrajectory(
-  const std::vector<double> & base_index,
-  const Trajectory & base_trajectory,
+  const std::vector<double> & base_index, const Trajectory & base_trajectory,
   const std::vector<double> & query_index, const bool use_spline_for_pose)
 {
   std::vector<double> px, py, pz, pyaw, tlx, taz, alx;
@@ -995,8 +1020,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
 boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   const rclcpp::Time & current_time, const TrajectoryData & ego_traj_data,
   const std::vector<double> & time_vec, const double safety_distance, const TargetObstacle & object,
-  const rclcpp::Time & obj_base_time,
-  const PredictedPath & predicted_path)
+  const rclcpp::Time & obj_base_time, const PredictedPath & predicted_path)
 {
   const double abs_obj_vel = std::abs(object.velocity);
   const double v_obj = abs_obj_vel < object_zero_velocity_threshold_ ? 0.0 : abs_obj_vel;
@@ -1273,8 +1297,7 @@ bool OptimizationBasedPlanner::checkIsFrontObject(
   return true;
 }
 
-boost::optional<PredictedPath>
-OptimizationBasedPlanner::resampledPredictedPath(
+boost::optional<PredictedPath> OptimizationBasedPlanner::resampledPredictedPath(
   const TargetObstacle & object, const rclcpp::Time & obj_base_time,
   const rclcpp::Time & current_time, const std::vector<double> & resolutions, const double horizon)
 {
@@ -1285,11 +1308,7 @@ OptimizationBasedPlanner::resampledPredictedPath(
   // Get the most reliable path
   const auto reliable_path = std::max_element(
     object.predicted_paths.begin(), object.predicted_paths.end(),
-    [](
-      const PredictedPath & a,
-      const PredictedPath & b) {
-      return a.confidence < b.confidence;
-    });
+    [](const PredictedPath & a, const PredictedPath & b) { return a.confidence < b.confidence; });
 
   // Resample Predicted Path
   const double duration = std::min(
@@ -1402,8 +1421,8 @@ OptimizationBasedPlanner::processOptimizedResult(
 }
 
 void OptimizationBasedPlanner::publishDebugTrajectory(
-  const rclcpp::Time & current_time, const Trajectory & traj,
-  const size_t closest_idx, const std::vector<double> & time_vec, const SBoundaries & s_boundaries,
+  const rclcpp::Time & current_time, const Trajectory & traj, const size_t closest_idx,
+  const std::vector<double> & time_vec, const SBoundaries & s_boundaries,
   const VelocityOptimizer::OptimizationResult & opt_result)
 {
   const std::vector<double> time = opt_result.t;

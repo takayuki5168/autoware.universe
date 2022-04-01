@@ -16,10 +16,11 @@
 #define OBSTACLE_VELOCITY_PLANNER__PLANNER_INTERFACE_HPP_
 
 #include "obstacle_velocity_planner/common_structs.hpp"
+#include "tier4_autoware_utils/tier4_autoware_utils.hpp"
 #include "vehicle_info_util/vehicle_info_util.hpp"
 
-#include "tier4_planning_msgs/msg/velocity_limit.hpp"
 #include "autoware_auto_planning_msgs/msg/trajectory.hpp"
+#include "tier4_planning_msgs/msg/velocity_limit.hpp"
 
 #include <boost/optional.hpp>
 
@@ -33,19 +34,15 @@
 #include <memory>
 #include <vector>
 
-using tier4_planning_msgs::msg::VelocityLimit;
 using autoware_auto_planning_msgs::msg::Trajectory;
+using tier4_planning_msgs::msg::VelocityLimit;
 
 class PlannerInterface
 {
 public:
   PlannerInterface(
-    const double max_accel, const double min_accel, const double max_jerk, const double min_jerk,
-    const double min_object_accel, const double idling_time,
-    const vehicle_info_util::VehicleInfo & vehicle_info)
-  : longitudinal_info_(
-      RSSLongitudinalInfo(max_accel, min_accel, max_jerk, min_jerk, min_object_accel, idling_time)),
-    vehicle_info_(vehicle_info)
+    const LongitudinalInfo & longitudinal_info, const vehicle_info_util::VehicleInfo & vehicle_info)
+  : longitudinal_info_(longitudinal_info), vehicle_info_(vehicle_info)
   {
   }
 
@@ -57,10 +54,30 @@ public:
   // 2. generateTrajectory
   //   returns trajectory with planned velocity
   virtual boost::optional<size_t> getZeroVelocityIndexWithVelocityLimit(
-    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data, [[maybe_unused]] boost::optional<VelocityLimit> & vel_limit) { return {}; };
+    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data,
+    [[maybe_unused]] boost::optional<VelocityLimit> & vel_limit)
+  {
+    return {};
+  };
 
   virtual Trajectory generateTrajectory(
-    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data) { return Trajectory{}; }
+    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data)
+  {
+    return Trajectory{};
+  }
+
+  void updateCommonParam(const std::vector<rclcpp::Parameter> & parameters)
+  {
+    auto & i = longitudinal_info_;
+
+    tier4_autoware_utils::updateParam<double>(parameters, "common.max_accel", i.max_accel);
+    tier4_autoware_utils::updateParam<double>(parameters, "common.min_accel", i.min_accel);
+    tier4_autoware_utils::updateParam<double>(parameters, "common.max_jerk", i.max_jerk);
+    tier4_autoware_utils::updateParam<double>(parameters, "common.min_jerk", i.min_jerk);
+    tier4_autoware_utils::updateParam<double>(
+      parameters, "common.min_object_accel", i.min_object_accel);
+    tier4_autoware_utils::updateParam<double>(parameters, "common.idling_time", i.idling_time);
+  }
 
   virtual void updateParam([[maybe_unused]] const std::vector<rclcpp::Parameter> & parameters) {}
 
@@ -76,14 +93,11 @@ public:
   }
 
   // TODO(shimizu) remove this function
-  void setSmoothedTrajectory(const Trajectory::SharedPtr traj)
-  {
-    smoothed_trajectory_ptr_ = traj;
-  }
+  void setSmoothedTrajectory(const Trajectory::SharedPtr traj) { smoothed_trajectory_ptr_ = traj; }
 
 protected:
   // Parameters
-  RSSLongitudinalInfo longitudinal_info_;
+  LongitudinalInfo longitudinal_info_;
 
   // Vehicle Parameters
   vehicle_info_util::VehicleInfo vehicle_info_;

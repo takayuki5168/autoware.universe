@@ -79,9 +79,9 @@ struct ObstacleVelocityPlannerData
   std::vector<TargetObstacle> target_obstacles;
 };
 
-struct RSSLongitudinalInfo
+struct LongitudinalInfo
 {
-  RSSLongitudinalInfo(
+  LongitudinalInfo(
     const double arg_max_accel, const double arg_min_accel, const double arg_max_jerk,
     const double arg_min_jerk, const double arg_min_object_accel, const double arg_idling_time)
   : max_accel(arg_max_accel),

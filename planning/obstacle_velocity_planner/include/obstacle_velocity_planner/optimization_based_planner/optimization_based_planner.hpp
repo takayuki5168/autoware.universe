@@ -36,21 +36,19 @@
 #include <tuple>
 #include <vector>
 
+using autoware_auto_perception_msgs::msg::ObjectClassification;
+using autoware_auto_perception_msgs::msg::PredictedPath;
 using autoware_auto_planning_msgs::msg::TrajectoryPoint;
 using tier4_debug_msgs::msg::Float32Stamped;
-using autoware_auto_perception_msgs::msg::PredictedPath;
-using autoware_auto_perception_msgs::msg::ObjectClassification;
 
 class OptimizationBasedPlanner : public PlannerInterface
 {
 public:
   OptimizationBasedPlanner(
-    rclcpp::Node & node, const double max_accel, const double min_accel, const double max_jerk,
-    const double min_jerk, const double min_object_accel, const double idling_time,
+    rclcpp::Node & node, const LongitudinalInfo & longitudinal_info,
     const vehicle_info_util::VehicleInfo & vehicle_info);
 
-  Trajectory generateTrajectory(
-    const ObstacleVelocityPlannerData & planner_data) override;
+  Trajectory generateTrajectory(const ObstacleVelocityPlannerData & planner_data) override;
 
 private:
   struct TrajectoryData
@@ -77,28 +75,22 @@ private:
     const std::vector<double> & resolutions);
 
   std::tuple<double, double> calcInitialMotion(
-    const double current_vel, const Trajectory & input_traj,
-    const size_t input_closest, const Trajectory & prev_traj,
-    const double closest_stop_dist);
+    const double current_vel, const Trajectory & input_traj, const size_t input_closest,
+    const Trajectory & prev_traj, const double closest_stop_dist);
 
   TrajectoryPoint calcInterpolatedTrajectoryPoint(
-    const Trajectory & trajectory,
-    const geometry_msgs::msg::Pose & target_pose);
+    const Trajectory & trajectory, const geometry_msgs::msg::Pose & target_pose);
 
-  bool checkHasReachedGoal(
-    const Trajectory & traj, const size_t closest_idx,
-    const double v0);
+  bool checkHasReachedGoal(const Trajectory & traj, const size_t closest_idx, const double v0);
 
-  TrajectoryData getTrajectoryData(
-    const Trajectory & traj, const size_t closest_idx);
+  TrajectoryData getTrajectoryData(const Trajectory & traj, const size_t closest_idx);
 
   TrajectoryData resampleTrajectoryData(
     const TrajectoryData & base_traj_data, const double resampling_s_interval,
     const double max_traj_length, const double stop_dist);
 
   Trajectory resampleTrajectory(
-    const std::vector<double> & base_index,
-    const Trajectory & base_trajectory,
+    const std::vector<double> & base_index, const Trajectory & base_trajectory,
     const std::vector<double> & query_index, const bool use_spline_for_pose = false);
 
   boost::optional<SBoundaries> getSBoundaries(
@@ -130,8 +122,7 @@ private:
     const lanelet::routing::LaneletPaths & candidate_paths,
     lanelet::ConstLanelets & valid_lanelets);
 
-  bool checkIsFrontObject(
-    const TargetObstacle & object, const Trajectory & traj);
+  bool checkIsFrontObject(const TargetObstacle & object, const Trajectory & traj);
 
   boost::optional<PredictedPath> resampledPredictedPath(
     const TargetObstacle & object, const rclcpp::Time & obj_base_time,
@@ -139,8 +130,7 @@ private:
     const double horizon);
 
   boost::optional<geometry_msgs::msg::Pose> calcForwardPose(
-    const Trajectory & traj,
-    const geometry_msgs::msg::Point & point, const double target_length);
+    const Trajectory & traj, const geometry_msgs::msg::Point & point, const double target_length);
 
   boost::optional<geometry_msgs::msg::Pose> calcForwardPose(
     const TrajectoryData & ego_traj_data, const geometry_msgs::msg::Point & point,
@@ -164,9 +154,9 @@ private:
     const double v0, const VelocityOptimizer::OptimizationResult & opt_result);
 
   void publishDebugTrajectory(
-    const rclcpp::Time & current_time, const Trajectory & traj,
-    const size_t closest_idx, const std::vector<double> & time_vec,
-    const SBoundaries & s_boundaries, const VelocityOptimizer::OptimizationResult & opt_result);
+    const rclcpp::Time & current_time, const Trajectory & traj, const size_t closest_idx,
+    const std::vector<double> & time_vec, const SBoundaries & s_boundaries,
+    const VelocityOptimizer::OptimizationResult & opt_result);
 
   // Calculation time watcher
   tier4_autoware_utils::StopWatch<std::chrono::milliseconds> stop_watch_;
@@ -179,8 +169,7 @@ private:
   // Publisher
   rclcpp::Publisher<Trajectory>::SharedPtr boundary_pub_;
   rclcpp::Publisher<Trajectory>::SharedPtr optimized_sv_pub_;
-  rclcpp::Publisher<Trajectory>::SharedPtr
-    optimized_st_graph_pub_;
+  rclcpp::Publisher<Trajectory>::SharedPtr optimized_st_graph_pub_;
   rclcpp::Publisher<Float32Stamped>::SharedPtr distance_to_closest_obj_pub_;
   rclcpp::Publisher<Float32Stamped>::SharedPtr debug_calculation_time_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_wall_marker_pub_;
