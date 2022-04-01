@@ -132,6 +132,7 @@ private:
     double margin_for_collision_time;
     double max_ego_obj_overlap_time;
     double max_prediction_time_for_collision_check;
+    double obstacle_traj_angle_threshold;
   };
   ObstacleFilteringParam obstacle_filtering_param_;
 

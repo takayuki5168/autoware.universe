@@ -180,6 +180,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 {
   debug_values_.resetValues();
   debug_values_.setValues(DebugValues::TYPE::CURRENT_VELOCITY, planner_data.current_vel);
+  debug_values_.setValues(DebugValues::TYPE::CURRENT_ACCELERATION, planner_data.current_acc);
 
   // search highest probability obstacle for stop and slow down
   boost::optional<double> min_dist_to_stop;
@@ -217,8 +218,10 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
       const double dist_to_stop =
         std::max(dist_to_obstacle, dist_to_stop_with_acc_limit) - safe_distance_margin_;
       [&]() {
-        if (min_dist_to_stop && dist_to_stop > min_dist_to_stop.get()) {
-          return;
+        if (min_dist_to_stop) {
+          if (dist_to_stop > min_dist_to_stop.get()) {
+            return;
+          }
         }
         min_dist_to_stop = dist_to_stop;
 
@@ -230,7 +233,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
         debug_values_.setValues(DebugValues::TYPE::STOP_CURRENT_OBJECT_VELOCITY, obstacle.velocity);
         debug_values_.setValues(DebugValues::TYPE::STOP_TARGET_OBJECT_DISTANCE, dist_to_stop);
         debug_values_.setValues(
-          DebugValues::TYPE::STOP_TARGET_ACCELERATION, longitudinal_info_.min_accel);
+          DebugValues::TYPE::STOP_TARGET_ACCELERATION, min_obstacle_stop_accel_);
         debug_values_.setValues(DebugValues::TYPE::STOP_ERROR_OBJECT_DISTANCE, error_dist);
       }();
     } else {  // adaptive cruise
@@ -244,8 +247,10 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
       const double error_dist = dist_to_obstacle - rss_dist_with_vehicle_offset;
 
       [&]() {
-        if (min_dist_to_slow_down && error_dist > min_dist_to_slow_down.get()) {
-          return;
+        if (min_dist_to_slow_down) {
+          if (error_dist > min_dist_to_slow_down.get()) {
+            // return;
+          }
         }
         min_dist_to_slow_down = error_dist;
 
@@ -256,6 +261,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
           DebugValues::TYPE::SLOW_DOWN_CURRENT_OBJECT_DISTANCE, dist_to_obstacle);
         debug_values_.setValues(
           DebugValues::TYPE::SLOW_DOWN_TARGET_OBJECT_DISTANCE, rss_dist_with_vehicle_offset);
+        debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_ERROR_OBJECT_DISTANCE, error_dist);
       }();
     }
   }
@@ -292,6 +298,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
     // update debug values
     debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_VELOCITY, vel_limit->max_velocity);
+    debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_ACCELERATION, longitudinal_info_.min_accel);
   } else {
     // reset previous target velocity if adaptive cruise is not enabled
     prev_target_vel_ = {};

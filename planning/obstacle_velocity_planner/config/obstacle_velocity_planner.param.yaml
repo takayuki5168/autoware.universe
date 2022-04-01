@@ -19,17 +19,18 @@
       margin_for_collision_time : 3.0
       max_ego_obj_overlap_time : 1.0
       max_prediction_time_for_collision_check : 20.0
+      obstacle_traj_angle_threshold : 0.523
 
     rule_based_planner:
-      kp: 0.3 # 0.003
+      kp: 0.4 # 0.3 # 0.003
       ki: 0.0
-      kd: 0.0 # 0.1
+      kd: 0.3 # 0.0 # 0.1
       vel_to_acc_weight: 0.3 # 30.0 # target acceleration is calculated by (target_velocity - current_velocity) * vel_to_acc_weight
 
       min_slow_down_target_vel: 3.0 # minimum target velocity during slow down
 
       max_obj_velocity_for_stop : 1.0
-      safe_distance_margin : 5.0
+      safe_distance_margin : 7.0
       min_obstacle_stop_accel : -3.0
 
     optimization_based_planner:
