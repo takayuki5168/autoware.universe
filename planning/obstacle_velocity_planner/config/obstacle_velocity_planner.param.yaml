@@ -1,8 +1,8 @@
 /**:
   ros__parameters:
     common:
-      # planning_method: "rule_base"
-      planning_method: "optimization_base"
+      planning_method: "rule_base"
+      # planning_method: "optimization_base"
 
       max_accel:  1.0
       min_accel: -1.0
@@ -12,7 +12,9 @@
       min_object_accel: -1.0
 
     obstacle_filtering:
-      detection_area_expand_width : 3.0
+      rough_detection_area_expand_width : 5.0
+      detection_area_expand_width : 0.0
+      decimate_step_length : 1.0
       min_obstacle_velocity : 3.0
       margin_for_collision_time : 3.0
       max_ego_obj_overlap_time : 1.0

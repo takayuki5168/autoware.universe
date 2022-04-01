@@ -134,10 +134,12 @@ Polygon2d convertObstacleToPolygon(
 boost::optional<size_t> getFirstCollisionIndex(
   const std::vector<Polygon2d> & traj_polygons, const Polygon2d & obj_polygon, const double margin)
 {
+  constexpr double epsilon = 0.1;
+
   for (size_t i = 0; i < traj_polygons.size(); ++i) {
     const double dist = bg::distance(traj_polygons.at(i), obj_polygon);
 
-    if (dist < margin) {
+    if (dist < std::max(margin, epsilon)) {
       return i;
     }
   }
@@ -282,6 +284,8 @@ Polygon2d createOneStepPolygon(
       polygon,
       tier4_autoware_utils::calcOffsetPose(next_step_pose, -rear_overhang, width, 0.0).position);
   }
+
+  // polygon = isClockWise(polygon) ? polygon : inverseClockWise(polygon);
 
   Polygon2d hull_polygon;
   bg::convex_hull(polygon, hull_polygon);

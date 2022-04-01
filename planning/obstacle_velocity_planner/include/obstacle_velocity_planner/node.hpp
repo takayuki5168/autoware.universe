@@ -57,6 +57,7 @@ using nav_msgs::msg::Odometry;
 using tier4_planning_msgs::msg::StopReasonArray;
 using tier4_planning_msgs::msg::VelocityLimit;
 using tier4_planning_msgs::msg::VelocityLimitClearCommand;
+using tier4_debug_msgs::msg::Float32Stamped;
 using vehicle_info_util::VehicleInfo;
 
 namespace motion_planning
@@ -111,8 +112,8 @@ private:
   rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;
   rclcpp::Publisher<VelocityLimit>::SharedPtr vel_limit_pub_;
   rclcpp::Publisher<VelocityLimitClearCommand>::SharedPtr clear_vel_limit_pub_;
-
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_marker_pub_;
+  rclcpp::Publisher<Float32Stamped>::SharedPtr debug_calculation_time_pub_;
 
   OnSetParametersCallbackHandle::SharedPtr set_param_res_;
 
@@ -123,11 +124,16 @@ private:
   VehicleInfo vehicle_info_;
 
   // Obstacle filtering
-  double detection_area_expand_width_;
-  double min_obstacle_velocity_;
-  double margin_for_collision_time_;
-  double max_ego_obj_overlap_time_;
-  double max_prediction_time_for_collision_check_;
+  struct ObstacleFilteringParam {
+    double rough_detection_area_expand_width;
+    double detection_area_expand_width;
+    double decimate_step_length;
+    double min_obstacle_velocity;
+    double margin_for_collision_time;
+    double max_ego_obj_overlap_time;
+    double max_prediction_time_for_collision_check;
+  };
+  ObstacleFilteringParam obstacle_filtering_param_;
 
   // Mutex
   std::mutex mutex_;
