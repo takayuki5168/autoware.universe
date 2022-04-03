@@ -49,7 +49,8 @@ private:
   // ROS param
   double vel_to_acc_weight_;
   double min_slow_down_target_vel_;
-  double max_obj_velocity_for_stop_;
+  double max_vehicle_obj_velocity_to_stop_;
+  double max_non_vehicle_obj_velocity_to_stop_;
   double safe_distance_margin_;
   double min_obstacle_stop_accel_;
 
@@ -68,7 +69,8 @@ private:
 
   size_t doStop(const ObstacleVelocityPlannerData & planner_data, const double dist_to_stop) const;
   VelocityLimit doSlowDown(
-    const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx, const double dist_to_slow_down);
+    const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx,
+    const double dist_to_slow_down);
 
   DebugValues debug_values_;
 };

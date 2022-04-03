@@ -109,8 +109,7 @@ VelocityLimitClearCommand createVelocityLimitClearCommandMsg(const rclcpp::Time 
   return msg;
 }
 
-Trajectory trimTrajectoryFrom(
-  const Trajectory & input, const geometry_msgs::msg::Point & position)
+Trajectory trimTrajectoryFrom(const Trajectory & input, const geometry_msgs::msg::Point & position)
 {
   Trajectory output{};
 
@@ -151,8 +150,7 @@ TrajectoryPoint getBackwardPointFromBasePoint(
 }
 
 // TODO(murooka) replace with spline interpolation
-Trajectory decimateTrajectory(
-  const Trajectory & input, const double step_length)
+Trajectory decimateTrajectory(const Trajectory & input, const double step_length)
 {
   Trajectory output{};
 
@@ -192,9 +190,8 @@ PredictedPath getHighestConfidencePredictedPath(const std::vector<PredictedPath>
   return *reliable_path;
 }
 
-bool isAngleAlignedWithTrajectory(const Trajectory & traj,
-  const geometry_msgs::msg::Pose & pose,
-  const double threshold_angle)
+bool isAngleAlignedWithTrajectory(
+  const Trajectory & traj, const geometry_msgs::msg::Pose & pose, const double threshold_angle)
 {
   double diff_angle;
 
@@ -270,7 +267,8 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
     declare_parameter<double>("obstacle_filtering.detection_area_expand_width");
   obstacle_filtering_param_.decimate_step_length =
     declare_parameter<double>("obstacle_filtering.decimate_step_length");
-  obstacle_filtering_param_.min_obstacle_velocity = declare_parameter<double>("obstacle_filtering.min_obstacle_velocity");
+  obstacle_filtering_param_.min_obstacle_velocity =
+    declare_parameter<double>("obstacle_filtering.min_obstacle_velocity");
   obstacle_filtering_param_.margin_for_collision_time =
     declare_parameter<double>("obstacle_filtering.margin_for_collision_time");
   obstacle_filtering_param_.max_ego_obj_overlap_time =
@@ -322,14 +320,30 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallb
   planner_ptr_->updateParam(parameters);
 
   // obstacle_filtering
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.rough_detection_area_expand_width", obstacle_filtering_param_.rough_detection_area_expand_width);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.detection_area_expand_width", obstacle_filtering_param_.detection_area_expand_width);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.decimate_step_length", obstacle_filtering_param_.decimate_step_length);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.min_obstacle_velocity", obstacle_filtering_param_.min_obstacle_velocity);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.margin_for_collision_time", obstacle_filtering_param_.margin_for_collision_time);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.max_ego_obj_overlap_time", obstacle_filtering_param_.max_ego_obj_overlap_time);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.max_prediction_time_for_collision_check", obstacle_filtering_param_.max_prediction_time_for_collision_check);
-  tier4_autoware_utils::updateParam<double>(parameters, "obstacle_filtering.obstacle_traj_angle_threshold", obstacle_filtering_param_.obstacle_traj_angle_threshold);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.rough_detection_area_expand_width",
+    obstacle_filtering_param_.rough_detection_area_expand_width);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.detection_area_expand_width",
+    obstacle_filtering_param_.detection_area_expand_width);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.decimate_step_length",
+    obstacle_filtering_param_.decimate_step_length);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.min_obstacle_velocity",
+    obstacle_filtering_param_.min_obstacle_velocity);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.margin_for_collision_time",
+    obstacle_filtering_param_.margin_for_collision_time);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.max_ego_obj_overlap_time",
+    obstacle_filtering_param_.max_ego_obj_overlap_time);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.max_prediction_time_for_collision_check",
+    obstacle_filtering_param_.max_prediction_time_for_collision_check);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "obstacle_filtering.obstacle_traj_angle_threshold",
+    obstacle_filtering_param_.obstacle_traj_angle_threshold);
 
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;
@@ -339,6 +353,11 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallb
 
 void ObstacleVelocityPlannerNode::mapCallback(const HADMapBin::ConstSharedPtr msg)
 {
+  RCLCPP_INFO(get_logger(), "[Obstacle Velocity Planner]: Start loading lanelet");
+  lanelet_map_ptr_ = std::make_shared<lanelet::LaneletMap>();
+  lanelet::utils::conversion::fromBinMsg(
+    *msg, lanelet_map_ptr_, &traffic_rules_ptr_, &routing_graph_ptr_);
+
   auto lanelet_map_ptr = std::make_shared<lanelet::LaneletMap>();
   std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr;
   std::shared_ptr<lanelet::routing::RoutingGraph> routing_graph_ptr;
@@ -443,7 +462,7 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
   trajectory_pub_->publish(output);
 
   const double calculation_time = stop_watch.toc();
-  { // publish calculation_time
+  {  // publish calculation_time
     Float32Stamped calculation_time_msg;
     calculation_time_msg.stamp = planner_data.current_time;
     calculation_time_msg.data = calculation_time;
@@ -470,29 +489,38 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
   const geometry_msgs::msg::Pose & current_pose, const double current_vel)
 {
   const auto trimmed_traj = trimTrajectoryFrom(traj, current_pose.position);
-  const auto decimated_traj = decimateTrajectory(trimmed_traj, obstacle_filtering_param_.decimate_step_length);
-  const auto decimated_traj_polygons = polygon_utils::createOneStepPolygons(decimated_traj, vehicle_info_);
+  const auto decimated_traj =
+    decimateTrajectory(trimmed_traj, obstacle_filtering_param_.decimate_step_length);
+  const auto decimated_traj_polygons =
+    polygon_utils::createOneStepPolygons(decimated_traj, vehicle_info_);
+
+  const auto surrounding_lanelets = getSurroundingLanelets(current_pose);
 
   std::vector<TargetObstacle> target_obstacles;
   for (const auto & obstacle : obstacles) {
-    const auto predicted_path_with_highest_confidence = getHighestConfidencePredictedPath(obstacle.predicted_paths);
-
-    // check if obstacle is the same direction with the trajectory
-    const bool is_aligned = isAngleAlignedWithTrajectory(decimated_traj, obstacle.pose, obstacle_filtering_param_.obstacle_traj_angle_threshold);
-    if (!is_aligned) {
-      RCLCPP_INFO_EXPRESSION(
-        get_logger(), true, "Ignore obstacles since its direction is not aligned to the trajectory.");
-      // continue;
+    const auto predicted_path_with_highest_confidence =
+      getHighestConfidencePredictedPath(obstacle.predicted_paths);
+    if (!checkOnMapObject(obstacle.pose, surrounding_lanelets)) {
+      continue;
     }
 
+    // check if obstacle is the same direction with the trajectory
+    // const bool is_aligned = isAngleAlignedWithTrajectory(decimated_traj, obstacle.pose,
+    // obstacle_filtering_param_.obstacle_traj_angle_threshold); if (!is_aligned) {
+    //   RCLCPP_INFO_EXPRESSION(
+    //     get_logger(), true, "Ignore obstacles since its direction is not aligned to the
+    //     trajectory.");
+    //   continue;
+    // }
+
     // rough area filtering
-    const double dist_from_obstacle_to_traj =
-      [&]() {
-        if (decimated_traj.points.size() == 1) {
-          return tier4_autoware_utils::calcDistance2d(decimated_traj.points.at(0), obstacle.pose.position);
-        }
-        return tier4_autoware_utils::calcLateralOffset(decimated_traj.points, obstacle.pose.position);
-      }();
+    const double dist_from_obstacle_to_traj = [&]() {
+      if (decimated_traj.points.size() == 1) {
+        return tier4_autoware_utils::calcDistance2d(
+          decimated_traj.points.at(0), obstacle.pose.position);
+      }
+      return tier4_autoware_utils::calcLateralOffset(decimated_traj.points, obstacle.pose.position);
+    }();
     if (dist_from_obstacle_to_traj > obstacle_filtering_param_.rough_detection_area_expand_width) {
       // obstacle is farm from the trajectory
       RCLCPP_INFO_EXPRESSION(
@@ -502,7 +530,8 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
 
     // precise area filtering
     const auto first_within_idx = polygon_utils::getFirstCollisionIndex(
-      decimated_traj_polygons, polygon_utils::convertObstacleToPolygon(obstacle.pose, obstacle.shape),
+      decimated_traj_polygons,
+      polygon_utils::convertObstacleToPolygon(obstacle.pose, obstacle.shape),
       obstacle_filtering_param_.detection_area_expand_width);
 
     if (first_within_idx) {  // obsacles inside the trajectory
@@ -513,7 +542,10 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
         obstacle.classification.label == ObjectClassification::MOTORCYCLE) {  // vehicle
                                                                               // obstacle
 
-        if (std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_velocity) {  // running obstacle
+        constexpr double epsilon = 1e-6;
+        if (std::abs(obstacle.velocity) > epsilon) {
+          // if (std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_velocity) { //
+          // running obstacle
           const double time_to_collision = [&]() {
             const double dist_from_ego_to_obstacle =
               tier4_autoware_utils::calcSignedArcLength(
@@ -524,22 +556,26 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
 
           const double time_to_obstacle_getting_out = [&]() {
             const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
-              decimated_traj_polygons, predicted_path_with_highest_confidence, obstacle.shape, first_within_idx.get(),
-              obstacle_filtering_param_.detection_area_expand_width);
+              decimated_traj_polygons, predicted_path_with_highest_confidence, obstacle.shape,
+              first_within_idx.get(), obstacle_filtering_param_.detection_area_expand_width);
             if (!obstacle_getting_out_idx) {
               return std::numeric_limits<double>::max();
             }
 
             const double dist_to_obstacle_getting_out = tier4_autoware_utils::calcSignedArcLength(
               decimated_traj.points, obstacle.pose.position, obstacle_getting_out_idx.get());
+
             return dist_to_obstacle_getting_out / obstacle.velocity;
           }();
 
-          if (time_to_collision > time_to_obstacle_getting_out + obstacle_filtering_param_.margin_for_collision_time) {
+          if (
+            time_to_collision >
+            time_to_obstacle_getting_out + obstacle_filtering_param_.margin_for_collision_time) {
             // False Condition 1. Ignore vehicle obstacles inside the trajectory, which is running
             // and does not collide with ego in a certain time.
             RCLCPP_INFO_EXPRESSION(
-              get_logger(), true, "Ignore inside obstacles since it will not collide with the ego.");
+              get_logger(), true,
+              "Ignore inside obstacles since it will not collide with the ego.");
             continue;
           }
         }
@@ -549,8 +585,9 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
         3.0;  // std::max(vehicle_info_.max_longitudinal_offset_m, vehicle_info_.rear_overhang) +
               // std::max(shape.dimensions.x, shape.dimensions.y) / 2.0;
       const bool will_collide = polygon_utils::willCollideWithSurroundObstacle(
-        decimated_traj, decimated_traj_polygons, predicted_path_with_highest_confidence, obstacle.shape,
-        obstacle_filtering_param_.detection_area_expand_width, max_dist, obstacle_filtering_param_.max_ego_obj_overlap_time,
+        decimated_traj, decimated_traj_polygons, predicted_path_with_highest_confidence,
+        obstacle.shape, obstacle_filtering_param_.detection_area_expand_width, max_dist,
+        obstacle_filtering_param_.max_ego_obj_overlap_time,
         obstacle_filtering_param_.max_prediction_time_for_collision_check);
       if (!will_collide) {
         // False Condition 2. Ignore vehicle obstacles outside the trajectory, whose predicted path
@@ -575,6 +612,129 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
   debug_marker_pub_->publish(object_msg);
 
   return target_obstacles;
+}
+
+// following code is map-based obstacle filtering
+bool ObstacleVelocityPlannerNode::checkOnMapObject(
+  const geometry_msgs::msg::Pose & obstacle_pose, const lanelet::ConstLanelets & valid_lanelets)
+{
+  // If we do not have a map, return true
+  if (!lanelet_map_ptr_) {
+    return true;
+  }
+
+  // obstacle point
+  lanelet::BasicPoint2d search_point(obstacle_pose.position.x, obstacle_pose.position.y);
+
+  // nearest lanelet
+  std::vector<std::pair<double, lanelet::Lanelet>> surrounding_lanelets =
+    lanelet::geometry::findNearest(lanelet_map_ptr_->laneletLayer, search_point, 10);
+
+  // No Closest Lanelets
+  if (surrounding_lanelets.empty()) {
+    return false;
+  }
+
+  // Check if the vehicle is inside the lanelet
+  bool has_find_close_lanelet = false;
+  for (const auto & lanelet : surrounding_lanelets) {
+    if (lanelet::geometry::inside(lanelet.second, search_point)) {
+      has_find_close_lanelet = true;
+      // return true;
+      break;
+    }
+  }
+
+  if (!has_find_close_lanelet) {
+    // This object is out of the any lanelets in this map
+    return false;
+  }
+
+  for (const auto & valid_lanelet : valid_lanelets) {
+    if (lanelet::geometry::inside(valid_lanelet, search_point)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+lanelet::ConstLanelets ObstacleVelocityPlannerNode::getSurroundingLanelets(
+  const geometry_msgs::msg::Pose & current_pose)
+{
+  // If we do not have a map, return true
+  if (!lanelet_map_ptr_) {
+    return {};
+  }
+
+  const lanelet::BasicPoint2d search_point(current_pose.position.x, current_pose.position.y);
+
+  // nearest lanelet
+  const std::vector<std::pair<double, lanelet::Lanelet>> nearest_lanelets =
+    lanelet::geometry::findNearest(lanelet_map_ptr_->laneletLayer, search_point, 10);
+
+  // Get Current Lanelets
+  lanelet::Lanelets current_lanelets;
+  for (const auto & lanelet : nearest_lanelets) {
+    if (lanelet::geometry::inside(lanelet.second, search_point)) {
+      current_lanelets.push_back(lanelet.second);
+    }
+  }
+
+  lanelet::ConstLanelets surrounding_lanelets;
+
+  const double initial_search_dist = 200.0;
+  const double delta_search_dist = 50.0;
+  for (const auto & current_lanelet : current_lanelets) {
+    // Step1.1 Get the left lanelet
+    lanelet::routing::LaneletPaths left_paths;
+    auto opt_left = routing_graph_ptr_->left(current_lanelet);
+    if (!!opt_left) {
+      for (double search_dist = initial_search_dist; search_dist > 0;
+           search_dist -= delta_search_dist) {
+        const auto tmp_paths = routing_graph_ptr_->possiblePaths(*opt_left, search_dist, 0, false);
+        addValidLanelet(tmp_paths, surrounding_lanelets);
+      }
+    }
+
+    // Step1.2 Get the right lanelet
+    lanelet::routing::LaneletPaths right_paths;
+    auto opt_right = routing_graph_ptr_->right(current_lanelet);
+    if (!!opt_right) {
+      for (double search_dist = initial_search_dist; search_dist > 0;
+           search_dist -= delta_search_dist) {
+        const auto tmp_paths = routing_graph_ptr_->possiblePaths(*opt_right, search_dist, 0, false);
+        addValidLanelet(tmp_paths, surrounding_lanelets);
+      }
+    }
+
+    // Step1.3 Get the centerline
+    lanelet::routing::LaneletPaths center_paths;
+    for (double search_dist = initial_search_dist; search_dist > 0;
+         search_dist -= delta_search_dist) {
+      const auto tmp_paths =
+        routing_graph_ptr_->possiblePaths(current_lanelet, search_dist, 0, false);
+      addValidLanelet(tmp_paths, surrounding_lanelets);
+    }
+  }
+
+  return surrounding_lanelets;
+}
+
+void ObstacleVelocityPlannerNode::addValidLanelet(
+  const lanelet::routing::LaneletPaths & candidate_paths, lanelet::ConstLanelets & valid_lanelets)
+{
+  // Check if candidate paths are already in the valid paths
+  for (const auto & candidate_path : candidate_paths) {
+    for (const auto & candidate_lanelet : candidate_path) {
+      const bool is_new_lanelet =
+        std::find(valid_lanelets.begin(), valid_lanelets.end(), candidate_lanelet) ==
+        valid_lanelets.end();
+      if (is_new_lanelet) {
+        valid_lanelets.push_back(candidate_lanelet);
+      }
+    }
+  }
 }
 }  // namespace motion_planning
 #include <rclcpp_components/register_node_macro.hpp>

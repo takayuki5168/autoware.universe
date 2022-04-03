@@ -149,7 +149,8 @@ RuleBasedPlanner::RuleBasedPlanner(
   const double ki = node.declare_parameter<double>("rule_based_planner.ki");
   const double kd = node.declare_parameter<double>("rule_based_planner.kd");
   pid_controller_ = std::make_unique<PIDController>(kp, ki, kd);
-  output_ratio_during_accel_ = node.declare_parameter<double>("rule_based_planner.output_ratio_during_accel");
+  output_ratio_during_accel_ =
+    node.declare_parameter<double>("rule_based_planner.output_ratio_during_accel");
 
   // vel_to_acc_weight
   vel_to_acc_weight_ = node.declare_parameter<double>("rule_based_planner.vel_to_acc_weight");
@@ -158,8 +159,10 @@ RuleBasedPlanner::RuleBasedPlanner(
   min_slow_down_target_vel_ =
     node.declare_parameter<double>("rule_based_planner.min_slow_down_target_vel");
 
-  max_obj_velocity_for_stop_ =
-    node.declare_parameter<double>("rule_based_planner.max_obj_velocity_for_stop");
+  max_vehicle_obj_velocity_to_stop_ =
+    node.declare_parameter<double>("rule_based_planner.max_vehicle_obj_velocity_to_stop");
+  max_non_vehicle_obj_velocity_to_stop_ =
+    node.declare_parameter<double>("rule_based_planner.max_non_vehicle_obj_velocity_to_stop");
   safe_distance_margin_ = node.declare_parameter<double>("rule_based_planner.safe_distance_margin");
   min_obstacle_stop_accel_ =
     node.declare_parameter<double>("rule_based_planner.min_obstacle_stop_accel");
@@ -203,7 +206,14 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
       planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
 
-    if (std::abs(obstacle.velocity) < max_obj_velocity_for_stop_) {  // stop
+    const bool is_vehicle = obstacle_velocity_utils::isVehicle(obstacle.classification.label);
+    const bool is_stop_required = [&]() {
+      if (is_vehicle) {
+        return std::abs(obstacle.velocity) < max_vehicle_obj_velocity_to_stop_;
+      }
+      return std::abs(obstacle.velocity) < max_non_vehicle_obj_velocity_to_stop_;
+    }();
+    if (is_stop_required) {  // stop
       // calculate distance to stop
       // TODO vehicle offset
       const double dist_to_stop_with_acc_limit = [&]() {
@@ -302,7 +312,8 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
     // update debug values
     debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_VELOCITY, vel_limit->max_velocity);
-    debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_ACCELERATION, longitudinal_info_.min_accel);
+    debug_values_.setValues(
+      DebugValues::TYPE::SLOW_DOWN_TARGET_ACCELERATION, longitudinal_info_.min_accel);
   } else {
     // reset previous target velocity if adaptive cruise is not enabled
     prev_target_vel_ = {};
@@ -355,7 +366,8 @@ size_t RuleBasedPlanner::doStop(
 }
 
 VelocityLimit RuleBasedPlanner::doSlowDown(
-  const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx, const double dist_to_slow_down)
+  const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx,
+  const double dist_to_slow_down)
 {
   const auto & obstacle = planner_data.target_obstacles.at(target_obstacle_idx);
 
@@ -367,21 +379,21 @@ VelocityLimit RuleBasedPlanner::doSlowDown(
   [[maybe_unused]] const double prev_vel =
     prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
 
-  const double additional_vel =
-    [&]() {
-      if (dist_to_slow_down > 0) {
-        return pid_output_vel * output_ratio_during_accel_;
-      }
-      return pid_output_vel;
-    } ();
+  const double additional_vel = [&]() {
+    if (dist_to_slow_down > 0) {
+      return pid_output_vel * output_ratio_during_accel_;
+    }
+    return pid_output_vel;
+  }();
 
-  // std::clamp(pid_output_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel * 0.1);
+  // std::clamp(pid_output_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel *
+  // 0.1);
   // // TODO(murooka) accel * 0.1 (time step)
   const double target_vel_with_acc_limit =
     // std::max(min_slow_down_target_vel_, prev_vel + additional_vel); // TODO
     // std::max(min_slow_down_target_vel_, planner_data.current_vel + additional_vel);  // TODO
     std::max(0.0, planner_data.current_vel + additional_vel);  // TODO
-    // std::max(min_slow_down_target_vel_, obstacle.velocity + additional_vel);  // TODO
+  // std::max(min_slow_down_target_vel_, obstacle.velocity + additional_vel);  // TODO
 
   // calculate target acceleration
   const double target_acc = vel_to_acc_weight_ * additional_vel;
@@ -425,7 +437,8 @@ void RuleBasedPlanner::updateParam(const std::vector<rclcpp::Parameter> & parame
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kp", kp);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.ki", ki);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kd", kd);
-  tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.output_ratio_during_accel", output_ratio_during_accel_);
+  tier4_autoware_utils::updateParam<double>(
+    parameters, "rule_based_planner.output_ratio_during_accel", output_ratio_during_accel_);
 
   // vel_to_acc_weight
   tier4_autoware_utils::updateParam<double>(

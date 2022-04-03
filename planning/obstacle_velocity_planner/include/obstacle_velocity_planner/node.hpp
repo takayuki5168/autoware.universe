@@ -54,10 +54,10 @@ using autoware_auto_perception_msgs::msg::PredictedPath;
 using autoware_auto_planning_msgs::msg::Trajectory;
 using autoware_auto_planning_msgs::msg::TrajectoryPoint;
 using nav_msgs::msg::Odometry;
+using tier4_debug_msgs::msg::Float32Stamped;
 using tier4_planning_msgs::msg::StopReasonArray;
 using tier4_planning_msgs::msg::VelocityLimit;
 using tier4_planning_msgs::msg::VelocityLimitClearCommand;
-using tier4_debug_msgs::msg::Float32Stamped;
 using vehicle_info_util::VehicleInfo;
 
 namespace motion_planning
@@ -124,7 +124,8 @@ private:
   VehicleInfo vehicle_info_;
 
   // Obstacle filtering
-  struct ObstacleFilteringParam {
+  struct ObstacleFilteringParam
+  {
     double rough_detection_area_expand_width;
     double detection_area_expand_width;
     double decimate_step_length;
@@ -148,6 +149,19 @@ private:
   std::unique_ptr<PlannerInterface> planner_ptr_;
 
   bool need_to_clear_vel_limit_{false};
+
+  // Map
+  // Lanelet Map Pointers
+  std::shared_ptr<lanelet::LaneletMap> lanelet_map_ptr_;
+  std::shared_ptr<lanelet::routing::RoutingGraph> routing_graph_ptr_;
+  std::shared_ptr<lanelet::traffic_rules::TrafficRules> traffic_rules_ptr_;
+
+  bool checkOnMapObject(
+    const geometry_msgs::msg::Pose & obstacle_pose, const lanelet::ConstLanelets & valid_lanelets);
+  lanelet::ConstLanelets getSurroundingLanelets(const geometry_msgs::msg::Pose & current_pose);
+  void addValidLanelet(
+    const lanelet::routing::LaneletPaths & candidate_paths,
+    lanelet::ConstLanelets & valid_lanelets);
 };
 }  // namespace motion_planning
 

@@ -17,6 +17,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+#include "autoware_auto_perception_msgs/msg/object_classification.hpp"
 #include "autoware_auto_perception_msgs/msg/predicted_path.hpp"
 #include "autoware_auto_planning_msgs/msg/trajectory.hpp"
 #include "geometry_msgs/msg/pose.hpp"
@@ -28,6 +29,10 @@
 
 namespace obstacle_velocity_utils
 {
+using autoware_auto_perception_msgs::msg::ObjectClassification;
+
+bool isVehicle(const uint8_t label);
+
 visualization_msgs::msg::MarkerArray getObjectMarkerArray(
   const geometry_msgs::msg::Pose & obstacle_pose, size_t idx, const std::string & ns,
   const double r, const double g, const double b);

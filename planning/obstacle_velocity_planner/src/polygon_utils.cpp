@@ -153,25 +153,22 @@ boost::optional<size_t> getFirstNonCollisionIndex(
   const autoware_auto_perception_msgs::msg::Shape & shape, const size_t start_idx,
   const double dist_margin)
 {
-  for (size_t i = start_idx; i < traj_polygons.size(); ++i) {
-    double min_dist = std::numeric_limits<double>::max();
-    for (const auto & path_point : predicted_path.path) {
-      const auto obj_polygon = convertObstacleToPolygon(path_point, shape);
+  constexpr double epsilon = 1e-3;
 
+  size_t latest_collision_idx = start_idx;
+  for (const auto & path_point : predicted_path.path) {
+    const auto obj_polygon = convertObstacleToPolygon(path_point, shape);
+    for (size_t i = start_idx; i < traj_polygons.size(); ++i) {
       const double dist = bg::distance(traj_polygons.at(i), obj_polygon);
-      if (dist < min_dist) {
-        min_dist = dist;
-      }
-
-      if (min_dist < dist_margin) {
+      if (dist <= dist_margin + epsilon) {
+        latest_collision_idx = i;
         break;
       }
-    }
-    if (min_dist > dist_margin) {
-      return i;
+      if (i == traj_polygons.size() - 1) {
+        return latest_collision_idx;
+      }
     }
   }
-
   return {};
 }
 
