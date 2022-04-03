@@ -149,6 +149,7 @@ RuleBasedPlanner::RuleBasedPlanner(
   const double ki = node.declare_parameter<double>("rule_based_planner.ki");
   const double kd = node.declare_parameter<double>("rule_based_planner.kd");
   pid_controller_ = std::make_unique<PIDController>(kp, ki, kd);
+  output_ratio_during_accel_ = node.declare_parameter<double>("rule_based_planner.output_ratio_during_accel");
 
   // vel_to_acc_weight
   vel_to_acc_weight_ = node.declare_parameter<double>("rule_based_planner.vel_to_acc_weight");
@@ -184,8 +185,10 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
   // search highest probability obstacle for stop and slow down
   boost::optional<double> min_dist_to_stop;
-  boost::optional<double> min_dist_to_slow_down;
-  for (const auto & obstacle : planner_data.target_obstacles) {
+  boost::optional<std::pair<size_t, double>> min_dist_to_slow_down;
+  for (size_t o_idx = 0; o_idx < planner_data.target_obstacles.size(); ++o_idx) {
+    const auto & obstacle = planner_data.target_obstacles.at(o_idx);
+
     /*
     // interpolate current obstacle pose
     const auto current_interpolated_obstacle_pose =
@@ -248,11 +251,11 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
       [&]() {
         if (min_dist_to_slow_down) {
-          if (error_dist > min_dist_to_slow_down.get()) {
-            // return;
+          if (error_dist > min_dist_to_slow_down->second) {
+            return;
           }
         }
-        min_dist_to_slow_down = error_dist;
+        min_dist_to_slow_down = std::make_pair(o_idx, error_dist);
 
         // update debug values
         debug_values_.setValues(
@@ -292,9 +295,10 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("ObstacleVelocityPlanner::RuleBasedPlanner"), true, "slow down planning");
 
-    const double dist_to_slow_down = min_dist_to_slow_down.get();
+    const size_t target_obstacle_idx = min_dist_to_slow_down->first;
+    const double dist_to_slow_down = min_dist_to_slow_down->second;
 
-    vel_limit = doSlowDown(planner_data, dist_to_slow_down);
+    vel_limit = doSlowDown(planner_data, target_obstacle_idx, dist_to_slow_down);
 
     // update debug values
     debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_VELOCITY, vel_limit->max_velocity);
@@ -351,21 +355,33 @@ size_t RuleBasedPlanner::doStop(
 }
 
 VelocityLimit RuleBasedPlanner::doSlowDown(
-  const ObstacleVelocityPlannerData & planner_data, const double dist_to_slow_down)
+  const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx, const double dist_to_slow_down)
 {
+  const auto & obstacle = planner_data.target_obstacles.at(target_obstacle_idx);
+
   const size_t ego_idx = tier4_autoware_utils::findNearestIndex(
     planner_data.traj.points, planner_data.current_pose.position);
 
   // calculate target velocity with acceleration limit by PID controller
-  const double diff_vel = pid_controller_->calc(dist_to_slow_down);
+  const double pid_output_vel = pid_controller_->calc(dist_to_slow_down);
   [[maybe_unused]] const double prev_vel =
     prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
-  const double additional_vel = diff_vel;
-  // std::clamp(diff_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel * 0.1);
+
+  const double additional_vel =
+    [&]() {
+      if (dist_to_slow_down > 0) {
+        return pid_output_vel * output_ratio_during_accel_;
+      }
+      return pid_output_vel;
+    } ();
+
+  // std::clamp(pid_output_vel, longitudinal_info_.min_accel * 0.1, longitudinal_info_.max_accel * 0.1);
   // // TODO(murooka) accel * 0.1 (time step)
   const double target_vel_with_acc_limit =
     // std::max(min_slow_down_target_vel_, prev_vel + additional_vel); // TODO
-    std::max(min_slow_down_target_vel_, planner_data.current_vel + additional_vel);  // TODO
+    // std::max(min_slow_down_target_vel_, planner_data.current_vel + additional_vel);  // TODO
+    std::max(0.0, planner_data.current_vel + additional_vel);  // TODO
+    // std::max(min_slow_down_target_vel_, obstacle.velocity + additional_vel);  // TODO
 
   // calculate target acceleration
   const double target_acc = vel_to_acc_weight_ * additional_vel;
@@ -409,6 +425,7 @@ void RuleBasedPlanner::updateParam(const std::vector<rclcpp::Parameter> & parame
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kp", kp);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.ki", ki);
   tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.kd", kd);
+  tier4_autoware_utils::updateParam<double>(parameters, "rule_based_planner.output_ratio_during_accel", output_ratio_during_accel_);
 
   // vel_to_acc_weight
   tier4_autoware_utils::updateParam<double>(

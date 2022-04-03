@@ -482,7 +482,7 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
     if (!is_aligned) {
       RCLCPP_INFO_EXPRESSION(
         get_logger(), true, "Ignore obstacles since its direction is not aligned to the trajectory.");
-      continue;
+      // continue;
     }
 
     // rough area filtering

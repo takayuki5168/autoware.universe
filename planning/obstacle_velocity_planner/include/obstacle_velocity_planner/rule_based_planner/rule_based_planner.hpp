@@ -47,12 +47,15 @@ public:
 
 private:
   // ROS param
-  std::unique_ptr<PIDController> pid_controller_;
   double vel_to_acc_weight_;
   double min_slow_down_target_vel_;
   double max_obj_velocity_for_stop_;
   double safe_distance_margin_;
   double min_obstacle_stop_accel_;
+
+  // pid controller
+  std::unique_ptr<PIDController> pid_controller_;
+  double output_ratio_during_accel_;
 
   // Publisher
   rclcpp::Publisher<tier4_planning_msgs::msg::StopReasonArray>::SharedPtr stop_reasons_pub_;
@@ -65,7 +68,7 @@ private:
 
   size_t doStop(const ObstacleVelocityPlannerData & planner_data, const double dist_to_stop) const;
   VelocityLimit doSlowDown(
-    const ObstacleVelocityPlannerData & planner_data, const double dist_to_slow_down);
+    const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx, const double dist_to_slow_down);
 
   DebugValues debug_values_;
 };
