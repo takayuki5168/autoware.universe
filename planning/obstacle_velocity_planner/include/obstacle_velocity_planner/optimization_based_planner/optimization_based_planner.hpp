@@ -83,7 +83,7 @@ private:
 
   bool checkHasReachedGoal(const Trajectory & traj, const size_t closest_idx, const double v0);
 
-  TrajectoryData getTrajectoryData(const Trajectory & traj, const size_t closest_idx);
+  TrajectoryData getTrajectoryData(const Trajectory & traj, const geometry_msgs::msg::Pose & current_pose);
 
   TrajectoryData resampleTrajectoryData(
     const TrajectoryData & base_traj_data, const double resampling_s_interval,

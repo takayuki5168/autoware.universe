@@ -165,7 +165,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
   }
 
   // Transform original trajectory to TrajectoryData
-  const auto base_traj_data = getTrajectoryData(planner_data.traj, *closest_idx);
+  const auto base_traj_data = getTrajectoryData(planner_data.traj, planner_data.current_pose);
   if (base_traj_data.traj.points.size() < 2) {
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
@@ -182,7 +182,6 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
   for (const auto & point : planner_data.traj.points) {
     v_max = std::max(v_max, static_cast<double>(point.longitudinal_velocity_mps));
   }
-  // v_max = std::min(v_max, planner_data.external_velocity_limit);
 
   // Get Current Velocity
   double v0;
@@ -324,7 +323,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
       !has_insert_stop_point && query_s > closest_stop_dist &&
       closest_stop_dist < opt_position.back()) {
       const double prev_query_s = resampled_opt_position.back();
-      if (closest_stop_dist - prev_query_s > 1e-3) {
+      if (closest_stop_dist - prev_query_s > CLOSE_S_DIST_THRESHOLD) {
         resampled_opt_position.push_back(closest_stop_dist);
       } else {
         resampled_opt_position.back() = closest_stop_dist;
@@ -342,7 +341,6 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
       resampled_opt_position.push_back(query_s);
     }
   }
-
   const auto resampled_opt_velocity =
     interpolation::lerp(opt_position, opt_velocity, resampled_opt_position);
 
@@ -350,18 +348,13 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
   for (size_t i = break_id; i < base_traj_data.s.size(); ++i) {
     const double query_s = base_traj_data.s.at(i);
     const double prev_query_s = resampled_opt_position.back();
-    if (query_s - prev_query_s > 1e-3) {
+    if (query_s - prev_query_s > CLOSE_S_DIST_THRESHOLD) {
       resampled_opt_position.push_back(query_s);
     }
   }
 
-  std::vector<double> base_s(base_traj_data.s.size());
-  for (size_t i = 0; i < base_traj_data.s.size(); ++i) {
-    base_s.at(i) = base_traj_data.s.at(i);
-  }
-
   auto resampled_traj =
-    resampling::applyLinearInterpolation(base_s, base_traj_data.traj, resampled_opt_position);
+    resampling::applyLinearInterpolation(base_traj_data.s, base_traj_data.traj, resampled_opt_position);
   for (size_t i = 0; i < resampled_opt_velocity.size(); ++i) {
     resampled_traj.points.at(i).longitudinal_velocity_mps = std::min(
       resampled_opt_velocity.at(i),
@@ -380,18 +373,22 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     point.longitudinal_velocity_mps = data.v0;
     output.points.push_back(point);
   }
-  output.points.insert(
-    output.points.end(), resampled_traj.points.begin(), resampled_traj.points.end());
-  output.points.back().longitudinal_velocity_mps = 0.0;  // terminal velocity is zero
-
-  // Zero Velocity Padding
-  const auto zero_vel_idx = tier4_autoware_utils::searchZeroVelocityIndex(
-    output.points, *closest_idx, output.points.size());
-  if (zero_vel_idx) {
-    for (size_t i = *zero_vel_idx; i < output.points.size(); ++i) {
-      output.points.at(i).longitudinal_velocity_mps = 0.0;
+  for (const auto resampled_point : resampled_traj.points) {
+    if (output.points.empty()) {
+      output.points.push_back(resampled_point);
+    } else {
+      const auto prev_point = output.points.back();
+      const double dist = tier4_autoware_utils::calcDistance2d(
+        prev_point.pose.position,
+        resampled_point.pose.position);
+      if (dist > 1e-3) {
+        output.points.push_back(resampled_point);
+      } else {
+        output.points.back() = resampled_point;
+      }
     }
   }
+  output.points.back().longitudinal_velocity_mps = 0.0;  // terminal velocity is zero
 
   prev_output_ = output;
   return output;
@@ -680,15 +677,30 @@ bool OptimizationBasedPlanner::checkHasReachedGoal(
 }
 
 OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::getTrajectoryData(
-  const Trajectory & traj, const size_t closest_idx)
+  const Trajectory & traj, const geometry_msgs::msg::Pose & current_pose)
 {
   TrajectoryData base_traj;
-  base_traj.traj.header = traj.header;
-  base_traj.traj.points.push_back(traj.points.at(closest_idx));
+  const auto closest_segment_idx = tier4_autoware_utils::findNearestSegmentIndex(
+    traj.points,
+    current_pose.position);
+  const auto interpolated_point = calcInterpolatedTrajectoryPoint(traj, current_pose);
+  const auto dist =
+    tier4_autoware_utils::calcDistance2d(
+    interpolated_point.pose.position, traj.points.at(
+      closest_segment_idx).pose.position);
+  const auto current_point = dist > CLOSE_S_DIST_THRESHOLD ? interpolated_point : traj.points.at(
+    closest_segment_idx);
+  base_traj.traj.points.push_back(current_point);
   base_traj.s.push_back(0.0);
 
-  for (size_t id = closest_idx + 1; id < traj.points.size(); ++id) {
-    const double ds = tier4_autoware_utils::calcSignedArcLength(traj.points, id - 1, id);
+  for (size_t id = closest_segment_idx + 1; id < traj.points.size(); ++id) {
+    const auto prev_point = base_traj.traj.points.back();
+    const double ds = tier4_autoware_utils::calcDistance2d(
+      prev_point.pose.position, traj.points.at(
+        id).pose.position);
+    if (ds < CLOSE_S_DIST_THRESHOLD) {
+      continue;
+    }
     const double current_s = base_traj.s.back() + ds;
 
     base_traj.traj.points.push_back(traj.points.at(id));
@@ -711,7 +723,6 @@ OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::resampleTraje
   // Obtain trajectory length until the velocity is zero or stop dist
   const auto closest_stop_id =
     tier4_autoware_utils::searchZeroVelocityIndex(base_traj_data.traj.points);
-
   const double closest_stop_dist =
     closest_stop_id ? std::min(stop_dist, base_traj_data.s.at(*closest_stop_id)) : stop_dist;
   const double traj_length = std::min(closest_stop_dist, std::min(base_s.back(), max_traj_length));
@@ -726,7 +737,7 @@ OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::resampleTraje
     return TrajectoryData{};
   }
 
-  if (traj_length - resampled_s.back() < 1e-3) {
+  if (traj_length - resampled_s.back() < CLOSE_S_DIST_THRESHOLD) {
     resampled_s.back() = traj_length;
   } else {
     resampled_s.push_back(traj_length);
@@ -819,8 +830,6 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     const auto & obj = planner_data.target_obstacles.at(o_idx);
     // Step1 Check object position
     if (!checkIsFrontObject(obj, ego_traj_data.traj)) {
-      // RCLCPP_DEBUG(rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
-      // "Ignore obstacle behind the trajectory");
       continue;
     }
 
@@ -970,6 +979,11 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   const TrajectoryData & ego_traj_data, const std::vector<double> & time_vec,
   const double safety_distance, const TargetObstacle & object, const double dist_to_collision_point)
 {
+  const double& t_idling = longitudinal_info_.idling_time;
+  const double& max_accel = longitudinal_info_.max_accel;
+  const double& min_accel = longitudinal_info_.min_accel;
+  const double& min_object_accel = longitudinal_info_.min_object_accel;
+
   SBoundaries s_boundaries(time_vec.size());
   for (size_t i = 0; i < s_boundaries.size(); ++i) {
     s_boundaries.at(i).max_s = ego_traj_data.s.back();
@@ -981,7 +995,10 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   double current_v_obj = v_obj < object_zero_velocity_threshold_ ? 0.0 : v_obj;
   double current_s_obj = std::max(dist_to_collision_point - safety_distance, 0.0);
   const double initial_s_obj = current_s_obj;
-  s_boundaries.front().max_s = current_s_obj;
+  const double initial_s_upper_bound = current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel)) -
+    0.5 * max_accel * t_idling * t_idling -
+    0.5 * max_accel * max_accel * t_idling * t_idling / std::fabs(min_accel);
+  s_boundaries.front().max_s = std::clamp(initial_s_upper_bound, 0.0, s_boundaries.front().max_s);
   s_boundaries.front().is_object = true;
   for (size_t i = 1; i < time_vec.size(); ++i) {
     const double dt = time_vec.at(i) - time_vec.at(i - 1);
@@ -995,17 +1012,11 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
 
     double s_upper_bound =
       current_s_obj +
-      (current_v_obj * current_v_obj) / (2 * std::abs(longitudinal_info_.min_object_accel)) -
-      0.5 * longitudinal_info_.max_accel * longitudinal_info_.idling_time *
-        longitudinal_info_.idling_time -
-      0.5 * longitudinal_info_.max_accel * longitudinal_info_.max_accel *
-        longitudinal_info_.idling_time * longitudinal_info_.idling_time /
-        std::abs(longitudinal_info_.min_accel);
-    s_upper_bound = std::max(s_upper_bound, 0.0);
-    if (s_upper_bound < s_boundaries.at(i).max_s) {
-      s_boundaries.at(i).max_s = s_upper_bound;
-      s_boundaries.at(i).is_object = true;
-    }
+      (current_v_obj * current_v_obj) / (2 * std::abs(min_object_accel)) -
+      0.5 * max_accel * t_idling * t_idling -
+      0.5 * max_accel * max_accel * t_idling * t_idling / std::abs(min_accel);
+    s_upper_bound = std::clamp(s_upper_bound, 0.0, s_boundaries.at(i).max_s);
+    s_boundaries.at(i).is_object = true;
   }
 
   RCLCPP_DEBUG(
@@ -1022,6 +1033,11 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   const std::vector<double> & time_vec, const double safety_distance, const TargetObstacle & object,
   const rclcpp::Time & obj_base_time, const PredictedPath & predicted_path)
 {
+  const double& t_idling = longitudinal_info_.idling_time;
+  const double& max_accel = longitudinal_info_.max_accel;
+  const double& min_accel = longitudinal_info_.min_accel;
+  const double& min_object_accel = longitudinal_info_.min_object_accel;
+
   const double abs_obj_vel = std::abs(object.velocity);
   const double v_obj = abs_obj_vel < object_zero_velocity_threshold_ ? 0.0 : abs_obj_vel;
 
@@ -1051,11 +1067,14 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
       continue;
     }
 
-    const double s_upper_bound = std::max(*dist_to_collision_point - safety_distance, 0.0);
+    const double current_s_obj = std::max(*dist_to_collision_point - safety_distance, 0.0);
+    const double s_upper_bound = std::max(
+      current_s_obj + (v_obj * v_obj) / (2 * std::fabs(min_object_accel)) - 0.5 * max_accel *
+      t_idling * t_idling - 0.5 * max_accel * max_accel * t_idling * t_idling / std::fabs(
+        min_accel), 0.0);
     for (size_t i = 0; i < predicted_path_id; ++i) {
       if (s_upper_bound < s_boundaries.at(i).max_s) {
-        s_boundaries.at(i).max_s =
-          s_upper_bound + (v_obj * v_obj) / (2 * std::abs(longitudinal_info_.min_object_accel));
+        s_boundaries.at(i).max_s = s_upper_bound;
         s_boundaries.at(i).is_object = true;
       }
     }
@@ -1374,21 +1393,17 @@ OptimizationBasedPlanner::processOptimizedResult(
   for (size_t i = 1; i < opt_result.s.size(); ++i) {
     const double prev_s = processed_result.s.back();
     const double current_s = std::max(opt_result.s.at(i), 0.0);
+    const double current_v = opt_result.v.at(i);
     if (prev_s >= current_s) {
       processed_result.v.back() = 0.0;
       break_id = i;
       break;
-    }
-
-    const double current_v = opt_result.v.at(i);
-    if (current_v < ZERO_VEL_THRESHOLD) {
+    } else if (current_v < ZERO_VEL_THRESHOLD) {
       break_id = i;
       break;
-    }
-
-    if (std::abs(current_s - prev_s) < CLOSE_S_DIST_THRESHOLD) {
+    } else if (std::fabs(current_s - prev_s) < CLOSE_S_DIST_THRESHOLD) {
       processed_result.v.back() = current_v;
-      processed_result.s.back() = prev_s > 0.0 ? current_s : processed_result.s.back();
+      processed_result.s.back() = prev_s > 0.0 ? current_s : prev_s;
       continue;
     }
 
@@ -1406,8 +1421,9 @@ OptimizationBasedPlanner::processOptimizedResult(
     if (prev_s >= current_s) {
       processed_result.v.back() = 0.0;
       continue;
-    } else if (std::abs(current_s - prev_s) < CLOSE_S_DIST_THRESHOLD) {
-      processed_result.s.back() = prev_s > 0.0 ? current_s : processed_result.s.back();
+    } else if (std::fabs(current_s - prev_s) < CLOSE_S_DIST_THRESHOLD) {
+      processed_result.v.back() = 0.0;
+      processed_result.s.back() = prev_s > 0.0 ? current_s : prev_s;
       continue;
     }
     processed_result.t.push_back(opt_result.t.at(i));
