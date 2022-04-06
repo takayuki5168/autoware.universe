@@ -51,6 +51,10 @@ boost::optional<geometry_msgs::msg::Pose> calcForwardPose(
   const autoware_auto_planning_msgs::msg::Trajectory & traj,
   const geometry_msgs::msg::Point & point, const double target_length)
 {
+  if (traj.points.empty()) {
+    return {};
+  }
+
   const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(traj.points, point);
 
   size_t search_idx = nearest_idx;

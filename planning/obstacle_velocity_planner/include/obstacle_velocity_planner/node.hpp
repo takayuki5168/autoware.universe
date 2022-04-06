@@ -129,11 +129,11 @@ private:
     double rough_detection_area_expand_width;
     double detection_area_expand_width;
     double decimate_step_length;
-    double min_obstacle_velocity;
+    double min_obstacle_crossing_velocity;
     double margin_for_collision_time;
     double max_ego_obj_overlap_time;
     double max_prediction_time_for_collision_check;
-    double obstacle_traj_angle_threshold;
+    double crossing_obstacle_traj_angle_threshold;
   };
   ObstacleFilteringParam obstacle_filtering_param_;
 

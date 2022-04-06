@@ -14,20 +14,31 @@
     obstacle_filtering:
       rough_detection_area_expand_width : 5.0
       detection_area_expand_width : 0.0
-      decimate_step_length : 1.0
-      min_obstacle_velocity : 3.0
-      margin_for_collision_time : 3.0
+      decimate_step_length : 2.0
+
+      min_obstacle_crossing_velocity : 3.0
+      crossing_obstacle_traj_angle_threshold : 0.698 # = 40 [deg]
+
+      margin_for_collision_time : 8.0
       max_ego_obj_overlap_time : 1.0
       max_prediction_time_for_collision_check : 20.0
-      obstacle_traj_angle_threshold : 0.523
 
     rule_based_planner:
-      kp: 0.4 # 0.3 # 0.003
+      kp: 5.0 # 10.0 # 5.0 # 10.0 # 0.3 # 0.003
       ki: 0.0
-      kd: 0.3 # 0.0 # 0.1
-      output_ratio_during_accel: 0.25
+      kd: 5.0 # 3.0 # 0.0 # 0.1
+      output_ratio_during_accel: 0.2 # 0.1
 
-      vel_to_acc_weight: 0.3 # 30.0 # target acceleration is calculated by (target_velocity - current_velocity) * vel_to_acc_weight
+      #kp: 10.0
+      #ki: 0.0
+      #kd: 3.0
+
+      #kp: 10.0
+      #ki: 0.0
+      #kd: 10.0
+      #output_ratio_during_accel: 0.03
+
+      vel_to_acc_weight: 1.0 # 0.3 # 30.0 # target acceleration is calculated by (target_velocity - current_velocity) * vel_to_acc_weight
 
       min_slow_down_target_vel: 3.0 # minimum target velocity during slow down
 

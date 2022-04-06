@@ -193,7 +193,9 @@ PredictedPath getHighestConfidencePredictedPath(const std::vector<PredictedPath>
 bool isAngleAlignedWithTrajectory(
   const Trajectory & traj, const geometry_msgs::msg::Pose & pose, const double threshold_angle)
 {
-  double diff_angle;
+  if (traj.points.empty()) {
+    return false;
+  }
 
   const double obj_yaw = tf2::getYaw(pose.orientation);
 
@@ -267,16 +269,16 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
     declare_parameter<double>("obstacle_filtering.detection_area_expand_width");
   obstacle_filtering_param_.decimate_step_length =
     declare_parameter<double>("obstacle_filtering.decimate_step_length");
-  obstacle_filtering_param_.min_obstacle_velocity =
-    declare_parameter<double>("obstacle_filtering.min_obstacle_velocity");
+  obstacle_filtering_param_.min_obstacle_crossing_velocity =
+    declare_parameter<double>("obstacle_filtering.min_obstacle_crossing_velocity");
   obstacle_filtering_param_.margin_for_collision_time =
     declare_parameter<double>("obstacle_filtering.margin_for_collision_time");
   obstacle_filtering_param_.max_ego_obj_overlap_time =
     declare_parameter<double>("obstacle_filtering.max_ego_obj_overlap_time");
   obstacle_filtering_param_.max_prediction_time_for_collision_check =
     declare_parameter<double>("obstacle_filtering.max_prediction_time_for_collision_check");
-  obstacle_filtering_param_.obstacle_traj_angle_threshold =
-    declare_parameter<double>("obstacle_filtering.obstacle_traj_angle_threshold");
+  obstacle_filtering_param_.crossing_obstacle_traj_angle_threshold =
+    declare_parameter<double>("obstacle_filtering.crossing_obstacle_traj_angle_threshold");
 
   // Wait for first self pose
   self_pose_listener_.waitForFirstPose();
@@ -330,8 +332,8 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallb
     parameters, "obstacle_filtering.decimate_step_length",
     obstacle_filtering_param_.decimate_step_length);
   tier4_autoware_utils::updateParam<double>(
-    parameters, "obstacle_filtering.min_obstacle_velocity",
-    obstacle_filtering_param_.min_obstacle_velocity);
+    parameters, "obstacle_filtering.min_obstacle_crossing_velocity",
+    obstacle_filtering_param_.min_obstacle_crossing_velocity);
   tier4_autoware_utils::updateParam<double>(
     parameters, "obstacle_filtering.margin_for_collision_time",
     obstacle_filtering_param_.margin_for_collision_time);
@@ -342,8 +344,8 @@ rcl_interfaces::msg::SetParametersResult ObstacleVelocityPlannerNode::paramCallb
     parameters, "obstacle_filtering.max_prediction_time_for_collision_check",
     obstacle_filtering_param_.max_prediction_time_for_collision_check);
   tier4_autoware_utils::updateParam<double>(
-    parameters, "obstacle_filtering.obstacle_traj_angle_threshold",
-    obstacle_filtering_param_.obstacle_traj_angle_threshold);
+    parameters, "obstacle_filtering.crossing_obstacle_traj_angle_threshold",
+    obstacle_filtering_param_.crossing_obstacle_traj_angle_threshold);
 
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;
@@ -440,8 +442,12 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
     const auto zero_vel_idx =
       planner_ptr_->getZeroVelocityIndexWithVelocityLimit(planner_data, vel_limit);
 
+    // TODO(murooka) insert zero velocity in all points after zero_vel_idx
     if (zero_vel_idx) {
-      output.points.at(zero_vel_idx.get()).longitudinal_velocity_mps = 0.0;
+      // insert zero velocity
+      for (size_t traj_idx = zero_vel_idx.get(); traj_idx < output.points.size(); ++traj_idx) {
+        output.points.at(traj_idx).longitudinal_velocity_mps = 0.0;
+      }
     }
 
     if (vel_limit) {
@@ -491,6 +497,10 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
   const auto trimmed_traj = trimTrajectoryFrom(traj, current_pose.position);
   const auto decimated_traj =
     decimateTrajectory(trimmed_traj, obstacle_filtering_param_.decimate_step_length);
+  if (decimated_traj.points.size() < 2) {
+    return {};
+  }
+
   const auto decimated_traj_polygons =
     polygon_utils::createOneStepPolygons(decimated_traj, vehicle_info_);
 
@@ -504,21 +514,8 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
       continue;
     }
 
-    // check if obstacle is the same direction with the trajectory
-    // const bool is_aligned = isAngleAlignedWithTrajectory(decimated_traj, obstacle.pose,
-    // obstacle_filtering_param_.obstacle_traj_angle_threshold); if (!is_aligned) {
-    //   RCLCPP_INFO_EXPRESSION(
-    //     get_logger(), true, "Ignore obstacles since its direction is not aligned to the
-    //     trajectory.");
-    //   continue;
-    // }
-
     // rough area filtering
     const double dist_from_obstacle_to_traj = [&]() {
-      if (decimated_traj.points.size() == 1) {
-        return tier4_autoware_utils::calcDistance2d(
-          decimated_traj.points.at(0), obstacle.pose.position);
-      }
       return tier4_autoware_utils::calcLateralOffset(decimated_traj.points, obstacle.pose.position);
     }();
     if (dist_from_obstacle_to_traj > obstacle_filtering_param_.rough_detection_area_expand_width) {
@@ -535,17 +532,12 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
       obstacle_filtering_param_.detection_area_expand_width);
 
     if (first_within_idx) {  // obsacles inside the trajectory
-      if (
-        obstacle.classification.label == ObjectClassification::CAR ||
-        obstacle.classification.label == ObjectClassification::TRUCK ||
-        obstacle.classification.label == ObjectClassification::BUS ||
-        obstacle.classification.label == ObjectClassification::MOTORCYCLE) {  // vehicle
-                                                                              // obstacle
-
-        constexpr double epsilon = 1e-6;
-        if (std::abs(obstacle.velocity) > epsilon) {
-          // if (std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_velocity) { //
-          // running obstacle
+      const bool is_vehicle = obstacle_velocity_utils::isVehicle(obstacle.classification.label);
+      const bool is_angle_aligned = isAngleAlignedWithTrajectory(decimated_traj, obstacle.pose,
+                                                           obstacle_filtering_param_.crossing_obstacle_traj_angle_threshold);
+      const double has_high_speed =  std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_crossing_velocity;
+      // running vehicle crossing the ego trajectory
+      if (is_vehicle && !is_angle_aligned && has_high_speed) {
           const double time_to_collision = [&]() {
             const double dist_from_ego_to_obstacle =
               tier4_autoware_utils::calcSignedArcLength(
@@ -578,7 +570,6 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
               "Ignore inside obstacles since it will not collide with the ego.");
             continue;
           }
-        }
       }
     } else {  // obstacles outside the trajectory
       const double max_dist =
