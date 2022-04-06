@@ -367,7 +367,7 @@ void ObstacleVelocityPlannerNode::mapCallback(const HADMapBin::ConstSharedPtr ms
     *msg, lanelet_map_ptr, &traffic_rules_ptr, &routing_graph_ptr);
 
   if (planner_ptr_) {
-    planner_ptr_->setMaps(lanelet_map_ptr, traffic_rules_ptr, routing_graph_ptr);
+     planner_ptr_->setMaps(lanelet_map_ptr, traffic_rules_ptr, routing_graph_ptr);
     RCLCPP_INFO(get_logger(), "[Obstacle Velocity Planner]: Map is loaded");
   }
 }

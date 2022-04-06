@@ -1000,7 +1000,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     0.5 * max_accel * max_accel * t_idling * t_idling / std::fabs(min_accel);
   s_boundaries.front().max_s = std::clamp(initial_s_upper_bound, 0.0, s_boundaries.front().max_s);
   s_boundaries.front().is_object = true;
-  for (size_t i = 1; i < time_vec.size(); ++i) {
+for (size_t i = 1; i < time_vec.size(); ++i) {
     const double dt = time_vec.at(i) - time_vec.at(i - 1);
     if (i * dt <= 1.0 && use_object_acceleration_) {
       current_s_obj =
@@ -1010,20 +1010,14 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
       current_s_obj = std::max(current_s_obj + current_v_obj * dt, initial_s_obj);
     }
 
-    double s_upper_bound =
-      current_s_obj +
-      (current_v_obj * current_v_obj) / (2 * std::abs(min_object_accel)) -
-      0.5 * max_accel * t_idling * t_idling -
-      0.5 * max_accel * max_accel * t_idling * t_idling / std::abs(min_accel);
-    s_upper_bound = std::clamp(s_upper_bound, 0.0, s_boundaries.at(i).max_s);
+    const double s_upper_bound =
+      std::max(
+      current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel)) - 0.5 *
+      max_accel * t_idling * t_idling - 0.5 * max_accel * max_accel * t_idling * t_idling /
+      std::fabs(min_accel), 0.0);
+    s_boundaries.at(i).max_s = std::clamp(s_upper_bound, 0.0, s_boundaries.at(i).max_s);
     s_boundaries.at(i).is_object = true;
   }
-
-  RCLCPP_DEBUG(
-    rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"), "v_obj %f", v_obj);
-  RCLCPP_DEBUG(
-    rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
-    "distance to obstacle %f", dist_to_collision_point - safety_distance + safe_distance_margin_);
 
   return s_boundaries;
 }

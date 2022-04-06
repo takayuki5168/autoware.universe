@@ -1,8 +1,8 @@
 /**:
   ros__parameters:
     common:
-      # planning_method: "rule_base"
-      planning_method: "optimization_base"
+      planning_method: "rule_base"
+      #planning_method: "optimization_base"
 
       max_accel:  1.0
       min_accel: -1.0
