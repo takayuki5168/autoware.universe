@@ -46,6 +46,15 @@ public:
   void updateParam(const std::vector<rclcpp::Parameter> & parameters) override;
 
 private:
+  struct SlowDownInfo
+  {
+    SlowDownInfo(const double dist_to_slow_down_arg, const double normalized_dist_to_slow_down_arg, const TargetObstacle & obstacle_arg)
+      : dist_to_slow_down(dist_to_slow_down_arg), normalized_dist_to_slow_down(normalized_dist_to_slow_down_arg), obstacle(obstacle_arg) {}
+    double dist_to_slow_down;
+    double normalized_dist_to_slow_down;
+    TargetObstacle obstacle;
+  };
+
   // ROS param
   double vel_to_acc_weight_;
   double min_slow_down_target_vel_;
@@ -69,8 +78,8 @@ private:
 
   size_t doStop(const ObstacleVelocityPlannerData & planner_data, const double dist_to_stop) const;
   VelocityLimit doSlowDown(
-    const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx,
-    const double dist_to_slow_down);
+    const ObstacleVelocityPlannerData & planner_data,
+    const SlowDownInfo & slow_down_info);
 
   DebugValues debug_values_;
 };

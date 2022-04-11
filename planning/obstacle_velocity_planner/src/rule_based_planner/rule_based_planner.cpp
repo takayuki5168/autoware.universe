@@ -188,15 +188,17 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
   // search highest probability obstacle for stop and slow down
   boost::optional<double> min_dist_to_stop;
-  boost::optional<std::pair<size_t, double>> min_dist_to_slow_down;
-  for (size_t o_idx = 0; o_idx < planner_data.target_obstacles.size(); ++o_idx) {
-    const auto & obstacle = planner_data.target_obstacles.at(o_idx);
-
-    /*
+  boost::optional<SlowDownInfo> slow_down_info;
+  for (const auto & obstacle : planner_data.target_obstacles) {
     // interpolate current obstacle pose
+    /*
     const auto current_interpolated_obstacle_pose =
-    obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath( obstacle.predicted_paths.at(0),
-    obstacle.time_stamp, planner_data.current_time); if (!current_interpolated_obstacle_pose) {
+      obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath(obstacle.predicted_paths.at(0),
+                                                                     obstacle.time_stamp, planner_data.current_time);
+    if (!current_interpolated_obstacle_pose) {
+      RCLCPP_INFO_EXPRESSION(
+                             rclcpp::get_logger("ObstacleVelocityPlanner::RuleBasedPlanner"), true,
+                             "Ignore obstacles since its current pose cannot be interpolated.");
       continue;
     }
     const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
@@ -204,7 +206,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     current_interpolated_obstacle_pose->position);
     */
     const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
-      planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
+     planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
 
     const bool is_vehicle = obstacle_velocity_utils::isVehicle(obstacle.classification.label);
     const bool is_stop_required = [&]() {
@@ -230,6 +232,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
 
       const double dist_to_stop =
         std::max(dist_to_obstacle, dist_to_stop_with_acc_limit) - safe_distance_margin_;
+
       [&]() {
         if (min_dist_to_stop) {
           if (dist_to_stop > min_dist_to_stop.get()) {
@@ -260,12 +263,14 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
       const double error_dist = dist_to_obstacle - rss_dist_with_vehicle_offset;
 
       [&]() {
-        if (min_dist_to_slow_down) {
-          if (error_dist > min_dist_to_slow_down->second) {
+        if (slow_down_info) {
+          if (error_dist > slow_down_info->dist_to_slow_down) {
             return;
           }
         }
-        min_dist_to_slow_down = std::make_pair(o_idx, error_dist);
+        // const double normalized_dist_to_slow_down = error_dist / rss_dist_with_vehicle_offset;
+        const double normalized_dist_to_slow_down = error_dist / dist_to_obstacle;
+        slow_down_info = SlowDownInfo(error_dist, normalized_dist_to_slow_down, obstacle);
 
         // update debug values
         debug_values_.setValues(
@@ -301,19 +306,16 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
   }
 
   // do slow down
-  if (min_dist_to_slow_down) {
+  if (slow_down_info) {
     RCLCPP_INFO_EXPRESSION(
       rclcpp::get_logger("ObstacleVelocityPlanner::RuleBasedPlanner"), true, "slow down planning");
 
-    const size_t target_obstacle_idx = min_dist_to_slow_down->first;
-    const double dist_to_slow_down = min_dist_to_slow_down->second;
-
-    vel_limit = doSlowDown(planner_data, target_obstacle_idx, dist_to_slow_down);
+    vel_limit = doSlowDown(planner_data, slow_down_info.get());
 
     // update debug values
     debug_values_.setValues(DebugValues::TYPE::SLOW_DOWN_TARGET_VELOCITY, vel_limit->max_velocity);
     debug_values_.setValues(
-      DebugValues::TYPE::SLOW_DOWN_TARGET_ACCELERATION, longitudinal_info_.min_accel);
+      DebugValues::TYPE::SLOW_DOWN_TARGET_ACCELERATION, vel_limit->constraints.min_acceleration);
   } else {
     // reset previous target velocity if adaptive cruise is not enabled
     prev_target_vel_ = {};
@@ -366,21 +368,23 @@ size_t RuleBasedPlanner::doStop(
 }
 
 VelocityLimit RuleBasedPlanner::doSlowDown(
-  const ObstacleVelocityPlannerData & planner_data, const size_t target_obstacle_idx,
-  const double dist_to_slow_down)
+  const ObstacleVelocityPlannerData & planner_data,
+  const SlowDownInfo & slow_down_info)
 {
-  const auto & obstacle = planner_data.target_obstacles.at(target_obstacle_idx);
+  const double dist_to_slow_down = slow_down_info.dist_to_slow_down;
+  const double normalized_dist_to_slow_down = slow_down_info.normalized_dist_to_slow_down;
+  const auto & obstacle = slow_down_info.obstacle;
 
   const size_t ego_idx = tier4_autoware_utils::findNearestIndex(
     planner_data.traj.points, planner_data.current_pose.position);
 
   // calculate target velocity with acceleration limit by PID controller
-  const double pid_output_vel = pid_controller_->calc(dist_to_slow_down);
+  const double pid_output_vel = pid_controller_->calc(normalized_dist_to_slow_down);
   [[maybe_unused]] const double prev_vel =
     prev_target_vel_ ? prev_target_vel_.get() : planner_data.current_vel;
 
   const double additional_vel = [&]() {
-    if (dist_to_slow_down > 0) {
+    if (normalized_dist_to_slow_down > 0) {
       return pid_output_vel * output_ratio_during_accel_;
     }
     return pid_output_vel;
