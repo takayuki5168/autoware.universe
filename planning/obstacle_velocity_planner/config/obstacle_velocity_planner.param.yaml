@@ -2,7 +2,7 @@
   ros__parameters:
     common:
       planning_method: "rule_base"
-      #planning_method: "optimization_base"
+      # planning_method: "optimization_base"
 
       max_accel:  1.0
       min_accel: -1.0
@@ -24,10 +24,10 @@
       max_prediction_time_for_collision_check : 20.0
 
     rule_based_planner:
-      kp: 5.0 # 10.0 # 5.0 # 10.0 # 0.3 # 0.003
+      kp: 0.6 # 5.0 # 10.0 # 5.0 # 10.0 # 0.3 # 0.003
       ki: 0.0
-      kd: 5.0 # 3.0 # 0.0 # 0.1
-      output_ratio_during_accel: 0.2 # 0.1
+      kd: 0.5 # 5.0 # 3.0 # 0.0 # 0.1
+      output_ratio_during_accel: 2.5 # 0.2 # 0.1
 
       #kp: 10.0
       #ki: 0.0
@@ -38,7 +38,7 @@
       #kd: 10.0
       #output_ratio_during_accel: 0.03
 
-      vel_to_acc_weight: 1.0 # 0.3 # 30.0 # target acceleration is calculated by (target_velocity - current_velocity) * vel_to_acc_weight
+      vel_to_acc_weight: 8.0 # 1.0 # 0.3 # 30.0 # target acceleration is calculated by (target_velocity - current_velocity) * vel_to_acc_weight
 
       min_slow_down_target_vel: 3.0 # minimum target velocity during slow down
 
