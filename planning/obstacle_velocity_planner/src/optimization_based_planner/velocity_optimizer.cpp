@@ -47,6 +47,7 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
   const double v_max = std::max(data.v_max, 0.1);
   const double a_max = data.a_max;
   const double a_min = data.a_min;
+  const double limit_a_min = data.limit_a_min;
   const double j_max = data.j_max;
   const double j_min = data.j_min;
   const double a_range = std::max(a_max - a_min, 0.1);
@@ -66,7 +67,8 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
   const int IDX_OVER_A0 = 7 * N;
   const int IDX_OVER_J0 = 8 * N;
   const int l_variables = 9 * N;
-  const int l_constraints = 5 * N + 3 * (N - 1) + 3;
+  // const int l_constraints = 5 * N + 3* (N - 1) + 3;
+  const int l_constraints = 5 * N + 4 * (N - 1) + 3;
 
   // the matrix size depends on constraint numbers.
   Eigen::MatrixXd A = Eigen::MatrixXd::Zero(l_constraints, l_variables);
@@ -83,12 +85,10 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
   // + over_j_ideal^2
   constexpr double MINIMUM_MAX_S_BOUND = 0.01;
   for (size_t i = 0; i < N; ++i) {
-    const double dt = i <
-      N - 1 ? time_vec.at(i + 1) - time_vec.at(i) : time_vec.at(N - 1) - time_vec.at(N - 2);
+    const double dt =
+      i < N - 1 ? time_vec.at(i + 1) - time_vec.at(i) : time_vec.at(N - 1) - time_vec.at(N - 2);
     const double max_s = std::max(s_boundary.at(i).max_s, MINIMUM_MAX_S_BOUND);
-    // const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
-    const double v_coeff = v0 / (2 * std::fabs(a_min)) + a_max * t_idling / std::fabs(a_min) +
-      t_idling;
+    const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
     if (s_boundary.at(i).is_object) {
       q.at(IDX_S0 + i) += -max_s_weight_ / max_s * dt;
       q.at(IDX_V0 + i) += -max_s_weight_ / max_s * v_coeff * dt;
@@ -100,21 +100,18 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
   }
 
   for (size_t i = 0; i < N; ++i) {
-    const double dt = i <
-      N - 1 ? time_vec.at(i + 1) - time_vec.at(i) : time_vec.at(N - 1) - time_vec.at(N - 2);
+    const double dt =
+      i < N - 1 ? time_vec.at(i + 1) - time_vec.at(i) : time_vec.at(N - 1) - time_vec.at(N - 2);
     const double max_s = std::max(s_boundary.at(i).max_s, MINIMUM_MAX_S_BOUND);
-    P(
-      IDX_OVER_S_SAFETY0 + i,
-      IDX_OVER_S_SAFETY0 + i) += over_s_safety_weight_ / (max_s * max_s) * dt;
+    P(IDX_OVER_S_SAFETY0 + i, IDX_OVER_S_SAFETY0 + i) +=
+      over_s_safety_weight_ / (max_s * max_s) * dt;
     P(IDX_OVER_S_IDEAL0 + i, IDX_OVER_S_IDEAL0 + i) += over_s_ideal_weight_ / (max_s * max_s) * dt;
     P(IDX_OVER_V0 + i, IDX_OVER_V0 + i) += over_v_weight_ / (v_max * v_max) * dt;
     P(IDX_OVER_A0 + i, IDX_OVER_A0 + i) += over_a_weight_ / a_range * dt;
     P(IDX_OVER_J0 + i, IDX_OVER_J0 + i) += over_j_weight_ / j_range * dt;
 
     if (s_boundary.at(i).is_object) {
-      // const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
-      const double v_coeff = v0 / (2 * std::fabs(a_min)) + a_max * t_idling / std::fabs(a_min) +
-        t_idling;
+      const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
       P(IDX_S0 + i, IDX_S0 + i) += max_s_weight_ / (max_s * max_s) * dt;
       P(IDX_V0 + i, IDX_V0 + i) += max_s_weight_ / (max_s * max_s) * v_coeff * v_coeff * dt;
       P(IDX_S0 + i, IDX_V0 + i) += max_s_weight_ / (max_s * max_s) * v_coeff * dt;
@@ -129,23 +126,23 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
   // Constraint
   size_t constr_idx = 0;
 
-  // Safety Position Constraint: s_boundary_min < s_i + v_i*t_dangerous + v0*v_i/(2*|a_min|) - over_s_safety_i < s_boundary_max
+  // Safety Position Constraint: s_boundary_min < s_i + v_i*t_dangerous + v0*v_i/(2*|a_min|) -
+  // over_s_safety_i < s_boundary_max
   for (size_t i = 0; i < N; ++i, ++constr_idx) {
     const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_dangerous;
     A(constr_idx, IDX_S0 + i) = 1.0;  // s_i
     if (s_boundary.at(i).is_object) {
-      A(constr_idx, IDX_V0 + i) = v_coeff;  // // v_i * (t_dangerous + v0/(2*|a_min|))
+      A(constr_idx, IDX_V0 + i) = v_coeff;  // v_i * (t_dangerous + v0/(2*|a_min|))
     }
     A(constr_idx, IDX_OVER_S_SAFETY0 + i) = -1.0;  // over_s_safety_i
     upper_bound.at(constr_idx) = s_boundary.at(i).max_s;
     lower_bound.at(constr_idx) = 0.0;
   }
 
-  // Ideal Position Constraint: s_boundary_min < s_i  + v_i * t_idling + v0*v_i/(2*|a_min|) - over_s_ideal_i < s_boundary_max
+  // Ideal Position Constraint: s_boundary_min < s_i  + v_i * t_idling + v0*v_i/(2*|a_min|) -
+  // over_s_ideal_i < s_boundary_max
   for (size_t i = 0; i < N; ++i, ++constr_idx) {
-    // const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
-    const double v_coeff = v0 / (2 * std::fabs(a_min)) + a_max * t_idling / std::fabs(a_min) +
-      t_idling;
+    const double v_coeff = v0 / (2 * std::fabs(a_min)) + t_idling;
     A(constr_idx, IDX_S0 + i) = 1.0;  // s_i
     if (s_boundary.at(i).is_object) {
       A(constr_idx, IDX_V0 + i) = v_coeff;  // v_i * (t_idling + v0/(2*|a_min|))
@@ -169,6 +166,13 @@ VelocityOptimizer::OptimizationResult VelocityOptimizer::optimize(const Optimiza
     A(constr_idx, IDX_OVER_A0 + i) = -1.0;  // over_a_i
     upper_bound.at(constr_idx) = i == N - 1 ? 0.0 : a_max;
     lower_bound.at(constr_idx) = i == N - 1 ? 0.0 : a_min;
+  }
+
+  // Hard Acceleration Constraint: limit_a_min < a_i < a_max
+  for (size_t i = 0; i < N; ++i, ++constr_idx) {
+    A(constr_idx, IDX_A0 + i) = 1.0;  // a_i
+    upper_bound.at(constr_idx) = a_max;
+    lower_bound.at(constr_idx) = limit_a_min;
   }
 
   // Soft Jerk Constraint: j_min < j_i - over_j_i < j_max

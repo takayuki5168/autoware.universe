@@ -73,6 +73,7 @@ OptimizationBasedPlanner::OptimizationBasedPlanner(
   dense_time_horizon_ =
     node.declare_parameter<double>("optimization_based_planner.dense_time_horizon");
   max_time_horizon_ = node.declare_parameter<double>("optimization_based_planner.max_time_horizon");
+  limit_min_accel_ = node.declare_parameter<double>("optimization_based_planner.limit_min_accel");
 
   delta_yaw_threshold_of_nearest_index_ =
     tier4_autoware_utils::deg2rad(node.declare_parameter<double>(
@@ -143,6 +144,7 @@ OptimizationBasedPlanner::OptimizationBasedPlanner(
 Trajectory OptimizationBasedPlanner::generateTrajectory(
   const ObstacleVelocityPlannerData & planner_data)
 {
+  std::cerr << "v0: " << planner_data.current_vel << std::endl;
   // Create Time Vector defined by resampling time interval
   const std::vector<double> time_vec = createTimeVector();
   if (time_vec.size() < 2) {
@@ -250,6 +252,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
   data.v_max = v_max;
   data.a_max = longitudinal_info_.max_accel;
   data.a_min = longitudinal_info_.min_accel;
+  data.limit_a_min = limit_min_accel_;
   data.j_max = longitudinal_info_.max_jerk;
   data.j_min = longitudinal_info_.min_jerk;
   data.t_dangerous = t_dangerous_;
@@ -353,8 +356,8 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     }
   }
 
-  auto resampled_traj =
-    resampling::applyLinearInterpolation(base_traj_data.s, base_traj_data.traj, resampled_opt_position);
+  auto resampled_traj = resampling::applyLinearInterpolation(
+    base_traj_data.s, base_traj_data.traj, resampled_opt_position);
   for (size_t i = 0; i < resampled_opt_velocity.size(); ++i) {
     resampled_traj.points.at(i).longitudinal_velocity_mps = std::min(
       resampled_opt_velocity.at(i),
@@ -379,8 +382,7 @@ Trajectory OptimizationBasedPlanner::generateTrajectory(
     } else {
       const auto prev_point = output.points.back();
       const double dist = tier4_autoware_utils::calcDistance2d(
-        prev_point.pose.position,
-        resampled_point.pose.position);
+        prev_point.pose.position, resampled_point.pose.position);
       if (dist > 1e-3) {
         output.points.push_back(resampled_point);
       } else {
@@ -503,20 +505,6 @@ double OptimizationBasedPlanner::getClosestStopDistance(
     dist_to_obj.data = closest_obj_distance;
     distance_to_closest_obj_pub_->publish(dist_to_obj);
 
-    const auto predicted_path = resampledPredictedPath(
-      closest_obj.get(), closest_obj.get().time_stamp, current_time, resolutions,
-      max_time_horizon_);
-
-    // Get current pose from object's predicted path
-    const auto current_object_pose = obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath(
-      *predicted_path, closest_obj.get().time_stamp, current_time);
-    const size_t nearest_idx = tier4_autoware_utils::findNearestIndex(
-      ego_traj_data.traj.points, current_object_pose.get().position);
-    [[maybe_unused]] const double ego_yaw =
-      tf2::getYaw(ego_traj_data.traj.points.at(nearest_idx).pose.orientation);
-    [[maybe_unused]] const double obj_yaw = tf2::getYaw(current_object_pose.get().orientation);
-    [[maybe_unused]] const double diff_yaw =
-      tier4_autoware_utils::normalizeRadian(obj_yaw - ego_yaw);
     RCLCPP_DEBUG(
       rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"),
       "Closest Object Distance %f", closest_obj_distance);
@@ -667,8 +655,6 @@ bool OptimizationBasedPlanner::checkHasReachedGoal(
     const double closest_stop_dist =
       tier4_autoware_utils::calcSignedArcLength(traj.points, closest_idx, *closest_stop_id);
     if (closest_stop_dist < 0.5 && v0 < 0.6) {
-      RCLCPP_DEBUG(
-        rclcpp::get_logger("ObstacleVelocityPlanner::OptimizationBasedPlanner"), "Goal Reached");
       return true;
     }
   }
@@ -680,24 +666,20 @@ OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::getTrajectory
   const Trajectory & traj, const geometry_msgs::msg::Pose & current_pose)
 {
   TrajectoryData base_traj;
-  const auto closest_segment_idx = tier4_autoware_utils::findNearestSegmentIndex(
-    traj.points,
-    current_pose.position);
+  const auto closest_segment_idx =
+    tier4_autoware_utils::findNearestSegmentIndex(traj.points, current_pose.position);
   const auto interpolated_point = calcInterpolatedTrajectoryPoint(traj, current_pose);
-  const auto dist =
-    tier4_autoware_utils::calcDistance2d(
-    interpolated_point.pose.position, traj.points.at(
-      closest_segment_idx).pose.position);
-  const auto current_point = dist > CLOSE_S_DIST_THRESHOLD ? interpolated_point : traj.points.at(
-    closest_segment_idx);
+  const auto dist = tier4_autoware_utils::calcDistance2d(
+    interpolated_point.pose.position, traj.points.at(closest_segment_idx).pose.position);
+  const auto current_point =
+    dist > CLOSE_S_DIST_THRESHOLD ? interpolated_point : traj.points.at(closest_segment_idx);
   base_traj.traj.points.push_back(current_point);
   base_traj.s.push_back(0.0);
 
   for (size_t id = closest_segment_idx + 1; id < traj.points.size(); ++id) {
     const auto prev_point = base_traj.traj.points.back();
     const double ds = tier4_autoware_utils::calcDistance2d(
-      prev_point.pose.position, traj.points.at(
-        id).pose.position);
+      prev_point.pose.position, traj.points.at(id).pose.position);
     if (ds < CLOSE_S_DIST_THRESHOLD) {
       continue;
     }
@@ -733,14 +715,14 @@ OptimizationBasedPlanner::TrajectoryData OptimizationBasedPlanner::resampleTraje
     resampled_s.push_back(s);
   }
 
-  if (resampled_s.empty()) {
-    return TrajectoryData{};
-  }
-
   if (traj_length - resampled_s.back() < CLOSE_S_DIST_THRESHOLD) {
     resampled_s.back() = traj_length;
   } else {
     resampled_s.push_back(traj_length);
+  }
+
+  if (resampled_s.empty()) {
+    return TrajectoryData{};
   }
 
   // Resample trajectory
@@ -979,10 +961,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   const TrajectoryData & ego_traj_data, const std::vector<double> & time_vec,
   const double safety_distance, const TargetObstacle & object, const double dist_to_collision_point)
 {
-  const double& t_idling = longitudinal_info_.idling_time;
-  const double& max_accel = longitudinal_info_.max_accel;
-  const double& min_accel = longitudinal_info_.min_accel;
-  const double& min_object_accel = longitudinal_info_.min_object_accel;
+  const double & min_object_accel = longitudinal_info_.min_object_accel;
 
   SBoundaries s_boundaries(time_vec.size());
   for (size_t i = 0; i < s_boundaries.size(); ++i) {
@@ -990,31 +969,27 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   }
 
   const double v_obj = std::abs(object.velocity);
-  const double a_obj = object.velocity;
+  const double a_obj = 0.0;
 
   double current_v_obj = v_obj < object_zero_velocity_threshold_ ? 0.0 : v_obj;
   double current_s_obj = std::max(dist_to_collision_point - safety_distance, 0.0);
   const double initial_s_obj = current_s_obj;
-  const double initial_s_upper_bound = current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel)) -
-    0.5 * max_accel * t_idling * t_idling -
-    0.5 * max_accel * max_accel * t_idling * t_idling / std::fabs(min_accel);
+  const double initial_s_upper_bound =
+    current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel));
   s_boundaries.front().max_s = std::clamp(initial_s_upper_bound, 0.0, s_boundaries.front().max_s);
   s_boundaries.front().is_object = true;
-for (size_t i = 1; i < time_vec.size(); ++i) {
+  for (size_t i = 1; i < time_vec.size(); ++i) {
     const double dt = time_vec.at(i) - time_vec.at(i - 1);
     if (i * dt <= 1.0 && use_object_acceleration_) {
       current_s_obj =
         std::max(current_s_obj + current_v_obj * dt + 0.5 * a_obj * dt * dt, initial_s_obj);
       current_v_obj = std::max(current_v_obj + a_obj * dt, 0.0);
     } else {
-      current_s_obj = std::max(current_s_obj + current_v_obj * dt, initial_s_obj);
+      current_s_obj = current_s_obj + current_v_obj * dt;
     }
 
     const double s_upper_bound =
-      std::max(
-      current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel)) - 0.5 *
-      max_accel * t_idling * t_idling - 0.5 * max_accel * max_accel * t_idling * t_idling /
-      std::fabs(min_accel), 0.0);
+      current_s_obj + (current_v_obj * current_v_obj) / (2 * std::fabs(min_object_accel));
     s_boundaries.at(i).max_s = std::clamp(s_upper_bound, 0.0, s_boundaries.at(i).max_s);
     s_boundaries.at(i).is_object = true;
   }
@@ -1027,10 +1002,7 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
   const std::vector<double> & time_vec, const double safety_distance, const TargetObstacle & object,
   const rclcpp::Time & obj_base_time, const PredictedPath & predicted_path)
 {
-  const double& t_idling = longitudinal_info_.idling_time;
-  const double& max_accel = longitudinal_info_.max_accel;
-  const double& min_accel = longitudinal_info_.min_accel;
-  const double& min_object_accel = longitudinal_info_.min_object_accel;
+  const double & min_object_accel = longitudinal_info_.min_object_accel;
 
   const double abs_obj_vel = std::abs(object.velocity);
   const double v_obj = abs_obj_vel < object_zero_velocity_threshold_ ? 0.0 : abs_obj_vel;
@@ -1062,13 +1034,11 @@ boost::optional<SBoundaries> OptimizationBasedPlanner::getSBoundaries(
     }
 
     const double current_s_obj = std::max(*dist_to_collision_point - safety_distance, 0.0);
-    const double s_upper_bound = std::max(
-      current_s_obj + (v_obj * v_obj) / (2 * std::fabs(min_object_accel)) - 0.5 * max_accel *
-      t_idling * t_idling - 0.5 * max_accel * max_accel * t_idling * t_idling / std::fabs(
-        min_accel), 0.0);
+    const double s_upper_bound =
+      current_s_obj + (v_obj * v_obj) / (2 * std::fabs(min_object_accel));
     for (size_t i = 0; i < predicted_path_id; ++i) {
       if (s_upper_bound < s_boundaries.at(i).max_s) {
-        s_boundaries.at(i).max_s = s_upper_bound;
+        s_boundaries.at(i).max_s = std::max(0.0, s_upper_bound);
         s_boundaries.at(i).is_object = true;
       }
     }
