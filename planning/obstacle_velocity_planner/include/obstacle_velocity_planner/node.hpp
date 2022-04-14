@@ -90,9 +90,6 @@ private:
     const std::vector<TargetObstacle> & obstacles, const Trajectory & traj,
     const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
-  Trajectory planTrajectory(
-    const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit);
-
   double calcCurrentAccel() const;
 
   void publishVelocityLimit(const boost::optional<VelocityLimit> & vel_limit);

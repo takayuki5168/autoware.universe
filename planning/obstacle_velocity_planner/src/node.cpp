@@ -419,7 +419,7 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
 
   // generate Trajectory
   boost::optional<VelocityLimit> vel_limit;
-  Trajectory output_traj = planTrajectory(planner_data, vel_limit);
+  const auto output_traj = planner_ptr_->generateTrajectory(planner_data, vel_limit);
 
   // publisher external velocity limit if required
   publishVelocityLimit(vel_limit);
@@ -435,19 +435,6 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
     debug_calculation_time_pub_->publish(calculation_time_msg);
   }
   // RCLCPP_WARN_STREAM(get_logger(), elapsed_time);
-}
-
-Trajectory ObstacleVelocityPlannerNode::planTrajectory(
-  const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit)
-{
-  if (planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
-    return planner_ptr_->generateTrajectory(planner_data, vel_limit);
-  } else if (planning_method_ == PlanningMethod::RULE_BASE) {
-    const auto output_traj = planner_ptr_->generateTrajectory(planner_data, vel_limit);
-    return output_traj;
-  }
-  std::logic_error("Designated method is not supported.");
-  return planner_data.traj;  // to avoid an warning of -Wreturn-type
 }
 
 void ObstacleVelocityPlannerNode::publishVelocityLimit(

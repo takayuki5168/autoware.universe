@@ -4,12 +4,15 @@
       planning_method: "rule_base"
       # planning_method: "optimization_base"
 
+      # parameters to calculate RSS distance
       max_accel:  1.0
       min_accel: -1.0
       max_jerk:  1.0
       min_jerk: -0.5
       idling_time: 2.5
       min_object_accel: -1.0
+
+      min_strong_stop_accel: -3.0
 
     obstacle_filtering:
       rough_detection_area_expand_width : 5.0
@@ -45,7 +48,6 @@
       max_vehicle_obj_velocity_to_stop : 2.0
       max_non_vehicle_obj_velocity_to_stop : 3.0
       safe_distance_margin : 7.0
-      min_obstacle_stop_accel : -3.0
 
     optimization_based_planner:
       limit_min_accel: -3.0

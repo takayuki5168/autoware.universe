@@ -164,8 +164,7 @@ RuleBasedPlanner::RuleBasedPlanner(
   max_non_vehicle_obj_velocity_to_stop_ =
     node.declare_parameter<double>("rule_based_planner.max_non_vehicle_obj_velocity_to_stop");
   safe_distance_margin_ = node.declare_parameter<double>("rule_based_planner.safe_distance_margin");
-  min_obstacle_stop_accel_ =
-    node.declare_parameter<double>("rule_based_planner.min_obstacle_stop_accel");
+  min_strong_stop_accel_ = node.declare_parameter<double>("common.min_strong_stop_accel");
 
   // Publisher
   stop_reasons_pub_ =
@@ -224,8 +223,8 @@ Trajectory RuleBasedPlanner::generateTrajectory(
         }
 
         const double time_to_stop_with_acc_limit =
-          -planner_data.current_vel / min_obstacle_stop_accel_;
-        return planner_data.current_vel * time_to_stop_with_acc_limit + min_obstacle_stop_accel_ +
+          -planner_data.current_vel / min_strong_stop_accel_;
+        return planner_data.current_vel * time_to_stop_with_acc_limit + min_strong_stop_accel_ +
                std::pow(time_to_stop_with_acc_limit, 2);
       }();
 
@@ -248,7 +247,7 @@ Trajectory RuleBasedPlanner::generateTrajectory(
         debug_values_.setValues(DebugValues::TYPE::STOP_CURRENT_OBJECT_VELOCITY, obstacle.velocity);
         debug_values_.setValues(DebugValues::TYPE::STOP_TARGET_OBJECT_DISTANCE, dist_to_stop);
         debug_values_.setValues(
-          DebugValues::TYPE::STOP_TARGET_ACCELERATION, min_obstacle_stop_accel_);
+          DebugValues::TYPE::STOP_TARGET_ACCELERATION, min_strong_stop_accel_);
         debug_values_.setValues(DebugValues::TYPE::STOP_ERROR_OBJECT_DISTANCE, error_dist);
       }();
     } else {  // adaptive cruise

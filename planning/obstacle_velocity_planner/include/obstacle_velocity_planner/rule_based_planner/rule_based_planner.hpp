@@ -67,7 +67,7 @@ private:
   double max_vehicle_obj_velocity_to_stop_;
   double max_non_vehicle_obj_velocity_to_stop_;
   double safe_distance_margin_;
-  double min_obstacle_stop_accel_;
+  double min_strong_stop_accel_;
 
   // pid controller
   std::unique_ptr<PIDController> pid_controller_;
