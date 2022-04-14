@@ -179,7 +179,7 @@ RuleBasedPlanner::RuleBasedPlanner(
   debug_values_pub_ = node.create_publisher<Float32MultiArrayStamped>("~/debug/values", 1);
 }
 
-boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
+Trajectory RuleBasedPlanner::generateTrajectory(
   const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit)
 {
   debug_values_.resetValues();
@@ -194,9 +194,8 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     /*
     const auto current_interpolated_obstacle_pose =
       obstacle_velocity_utils::getCurrentObjectPoseFromPredictedPath(obstacle.predicted_paths.at(0),
-                                                                     obstacle.time_stamp, planner_data.current_time);
-    if (!current_interpolated_obstacle_pose) {
-      RCLCPP_INFO_EXPRESSION(
+                                                                     obstacle.time_stamp,
+    planner_data.current_time); if (!current_interpolated_obstacle_pose) { RCLCPP_INFO_EXPRESSION(
                              rclcpp::get_logger("ObstacleVelocityPlanner::RuleBasedPlanner"), true,
                              "Ignore obstacles since its current pose cannot be interpolated.");
       continue;
@@ -206,7 +205,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     current_interpolated_obstacle_pose->position);
     */
     const double dist_to_obstacle = tier4_autoware_utils::calcSignedArcLength(
-     planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
+      planner_data.traj.points, planner_data.current_pose.position, obstacle.pose.position);
 
     const bool is_vehicle = obstacle_velocity_utils::isVehicle(obstacle.classification.label);
     const bool is_stop_required = [&]() {
@@ -217,7 +216,7 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
     }();
     if (is_stop_required) {  // stop
       // calculate distance to stop
-      // TODO vehicle offset
+      // TODO(murooka) vehicle offset
       const double dist_to_stop_with_acc_limit = [&]() {
         constexpr double epsilon = 1e-6;
         if (planner_data.current_vel < epsilon) {
@@ -331,14 +330,20 @@ boost::optional<size_t> RuleBasedPlanner::getZeroVelocityIndexWithVelocityLimit(
   const auto debug_values_msg = convertDebugValuesToMsg(planner_data.current_time, debug_values_);
   debug_values_pub_->publish(debug_values_msg);
 
-  // publish stop reason
+  auto output_traj = planner_data.traj;
   if (zero_vel_idx) {
+    // publish stop reason
     const auto stop_pose = planner_data.traj.points.at(zero_vel_idx.get()).pose;
     const auto stop_reasons_msg = makeStopReasonArray(planner_data.current_time, stop_pose);
     stop_reasons_pub_->publish(stop_reasons_msg);
+
+    // insert zero_velocity
+    for (size_t traj_idx = zero_vel_idx.get(); traj_idx < output_traj.points.size(); ++traj_idx) {
+      output_traj.points.at(traj_idx).longitudinal_velocity_mps = 0.0;
+    }
   }
 
-  return zero_vel_idx;
+  return output_traj;
 }
 
 size_t RuleBasedPlanner::doStop(
@@ -368,8 +373,7 @@ size_t RuleBasedPlanner::doStop(
 }
 
 VelocityLimit RuleBasedPlanner::doSlowDown(
-  const ObstacleVelocityPlannerData & planner_data,
-  const SlowDownInfo & slow_down_info)
+  const ObstacleVelocityPlannerData & planner_data, const SlowDownInfo & slow_down_info)
 {
   const double dist_to_slow_down = slow_down_info.dist_to_slow_down;
   const double normalized_dist_to_slow_down = slow_down_info.normalized_dist_to_slow_down;
@@ -394,10 +398,10 @@ VelocityLimit RuleBasedPlanner::doSlowDown(
   // 0.1);
   // // TODO(murooka) accel * 0.1 (time step)
   const double target_vel_with_acc_limit =
-    // std::max(min_slow_down_target_vel_, prev_vel + additional_vel); // TODO
-    // std::max(min_slow_down_target_vel_, planner_data.current_vel + additional_vel);  // TODO
-    std::max(0.0, planner_data.current_vel + additional_vel);  // TODO
-  // std::max(min_slow_down_target_vel_, obstacle.velocity + additional_vel);  // TODO
+    // std::max(min_slow_down_target_vel_, prev_vel + additional_vel);
+    // std::max(min_slow_down_target_vel_, planner_data.current_vel + additional_vel);
+    std::max(0.0, planner_data.current_vel + additional_vel);
+  // std::max(min_slow_down_target_vel_, obstacle.velocity + additional_vel);
 
   // calculate target acceleration
   const double target_acc = vel_to_acc_weight_ * additional_vel;

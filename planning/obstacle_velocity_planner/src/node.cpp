@@ -232,11 +232,6 @@ ObstacleVelocityPlannerNode::ObstacleVelocityPlannerNode(const rclcpp::NodeOptio
   sub_map_ = this->create_subscription<HADMapBin>(
     "~/input/map", rclcpp::QoS{1}.transient_local(),
     std::bind(&ObstacleVelocityPlannerNode::mapCallback, this, std::placeholders::_1));
-  /*
-  sub_external_velocity_limit_ = create_subscription<VelocityLimit>(
-    "/planning/scenario_planning/max_velocity", 1,
-    std::bind(&ObstacleVelocityPlannerNode::onExternalVelocityLimit, this, _1));
-  */
 
   // Publisher
   trajectory_pub_ = create_publisher<Trajectory>("~/output/trajectory", 1);
@@ -369,7 +364,7 @@ void ObstacleVelocityPlannerNode::mapCallback(const HADMapBin::ConstSharedPtr ms
     *msg, lanelet_map_ptr, &traffic_rules_ptr, &routing_graph_ptr);
 
   if (planner_ptr_) {
-     planner_ptr_->setMaps(lanelet_map_ptr, traffic_rules_ptr, routing_graph_ptr);
+    planner_ptr_->setMaps(lanelet_map_ptr, traffic_rules_ptr, routing_graph_ptr);
     RCLCPP_INFO(get_logger(), "[Obstacle Velocity Planner]: Map is loaded");
   }
 }
@@ -395,14 +390,6 @@ void ObstacleVelocityPlannerNode::smoothedTrajectoryCallback(const Trajectory::S
   planner_ptr_->setSmoothedTrajectory(msg);
 }
 
-/*
-void ObstacleVelocityPlannerNode::onExternalVelocityLimit(
-  const VelocityLimit::ConstSharedPtr msg)
-{
-  external_velocity_limit_ = msg->max_velocity;
-}
-*/
-
 void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr msg)
 {
   tier4_autoware_utils::StopWatch<
@@ -427,54 +414,55 @@ void ObstacleVelocityPlannerNode::trajectoryCallback(const Trajectory::SharedPtr
   planner_data.current_pose = self_pose_listener_.getCurrentPose()->pose;
   planner_data.current_vel = current_twist_ptr_->twist.linear.x;
   planner_data.current_acc = calcCurrentAccel();
-  // planner_data.external_velocity_limit = external_velocity_limit_;
   planner_data.target_obstacles = filterObstacles(
     obstacles, planner_data.traj, planner_data.current_pose, planner_data.current_vel);
 
   // generate Trajectory
-  Trajectory output;
-  if (planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
-    output = planner_ptr_->generateTrajectory(planner_data);
-  } else if (planning_method_ == PlanningMethod::RULE_BASE) {
-    output = planner_data.traj;
+  boost::optional<VelocityLimit> vel_limit;
+  Trajectory output_traj = planTrajectory(planner_data, vel_limit);
 
-    boost::optional<VelocityLimit> vel_limit;
-    const auto zero_vel_idx =
-      planner_ptr_->getZeroVelocityIndexWithVelocityLimit(planner_data, vel_limit);
-
-    // TODO(murooka) insert zero velocity in all points after zero_vel_idx
-    if (zero_vel_idx) {
-      // insert zero velocity
-      for (size_t traj_idx = zero_vel_idx.get(); traj_idx < output.points.size(); ++traj_idx) {
-        output.points.at(traj_idx).longitudinal_velocity_mps = 0.0;
-      }
-    }
-
-    if (vel_limit) {
-      vel_limit_pub_->publish(vel_limit.get());
-      need_to_clear_vel_limit_ = true;
-    } else {
-      if (need_to_clear_vel_limit_) {
-        const auto clear_vel_limit_msg = createVelocityLimitClearCommandMsg(get_clock()->now());
-        clear_vel_limit_pub_->publish(clear_vel_limit_msg);
-        need_to_clear_vel_limit_ = false;
-      }
-    }
-  } else {
-    std::logic_error("Designated method is not supported.");
-  }
+  // publisher external velocity limit if required
+  publishVelocityLimit(vel_limit);
 
   // Publish trajectory
-  trajectory_pub_->publish(output);
+  trajectory_pub_->publish(output_traj);
 
-  const double calculation_time = stop_watch.toc();
   {  // publish calculation_time
+    const double calculation_time = stop_watch.toc();
     Float32Stamped calculation_time_msg;
     calculation_time_msg.stamp = planner_data.current_time;
     calculation_time_msg.data = calculation_time;
     debug_calculation_time_pub_->publish(calculation_time_msg);
   }
   // RCLCPP_WARN_STREAM(get_logger(), elapsed_time);
+}
+
+Trajectory ObstacleVelocityPlannerNode::planTrajectory(
+  const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit)
+{
+  if (planning_method_ == PlanningMethod::OPTIMIZATION_BASE) {
+    return planner_ptr_->generateTrajectory(planner_data, vel_limit);
+  } else if (planning_method_ == PlanningMethod::RULE_BASE) {
+    const auto output_traj = planner_ptr_->generateTrajectory(planner_data, vel_limit);
+    return output_traj;
+  }
+  std::logic_error("Designated method is not supported.");
+  return planner_data.traj;  // to avoid an warning of -Wreturn-type
+}
+
+void ObstacleVelocityPlannerNode::publishVelocityLimit(
+  const boost::optional<VelocityLimit> & vel_limit)
+{
+  if (vel_limit) {
+    vel_limit_pub_->publish(vel_limit.get());
+    need_to_clear_vel_limit_ = true;
+  } else {
+    if (need_to_clear_vel_limit_) {
+      const auto clear_vel_limit_msg = createVelocityLimitClearCommandMsg(get_clock()->now());
+      clear_vel_limit_pub_->publish(clear_vel_limit_msg);
+      need_to_clear_vel_limit_ = false;
+    }
+  }
 }
 
 double ObstacleVelocityPlannerNode::calcCurrentAccel() const
@@ -533,43 +521,44 @@ std::vector<TargetObstacle> ObstacleVelocityPlannerNode::filterObstacles(
 
     if (first_within_idx) {  // obsacles inside the trajectory
       const bool is_vehicle = obstacle_velocity_utils::isVehicle(obstacle.classification.label);
-      const bool is_angle_aligned = isAngleAlignedWithTrajectory(decimated_traj, obstacle.pose,
-                                                           obstacle_filtering_param_.crossing_obstacle_traj_angle_threshold);
-      const double has_high_speed =  std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_crossing_velocity;
+      const bool is_angle_aligned = isAngleAlignedWithTrajectory(
+        decimated_traj, obstacle.pose,
+        obstacle_filtering_param_.crossing_obstacle_traj_angle_threshold);
+      const double has_high_speed =
+        std::abs(obstacle.velocity) > obstacle_filtering_param_.min_obstacle_crossing_velocity;
       // running vehicle crossing the ego trajectory
       if (is_vehicle && !is_angle_aligned && has_high_speed) {
-          const double time_to_collision = [&]() {
-            const double dist_from_ego_to_obstacle =
-              tier4_autoware_utils::calcSignedArcLength(
-                decimated_traj.points, current_pose.position, first_within_idx.get()) -
-              vehicle_info_.max_longitudinal_offset_m;
-            return dist_from_ego_to_obstacle / std::max(1e-6, current_vel);
-          }();
+        const double time_to_collision = [&]() {
+          const double dist_from_ego_to_obstacle =
+            tier4_autoware_utils::calcSignedArcLength(
+              decimated_traj.points, current_pose.position, first_within_idx.get()) -
+            vehicle_info_.max_longitudinal_offset_m;
+          return dist_from_ego_to_obstacle / std::max(1e-6, current_vel);
+        }();
 
-          const double time_to_obstacle_getting_out = [&]() {
-            const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
-              decimated_traj_polygons, predicted_path_with_highest_confidence, obstacle.shape,
-              first_within_idx.get(), obstacle_filtering_param_.detection_area_expand_width);
-            if (!obstacle_getting_out_idx) {
-              return std::numeric_limits<double>::max();
-            }
-
-            const double dist_to_obstacle_getting_out = tier4_autoware_utils::calcSignedArcLength(
-              decimated_traj.points, obstacle.pose.position, obstacle_getting_out_idx.get());
-
-            return dist_to_obstacle_getting_out / obstacle.velocity;
-          }();
-
-          if (
-            time_to_collision >
-            time_to_obstacle_getting_out + obstacle_filtering_param_.margin_for_collision_time) {
-            // False Condition 1. Ignore vehicle obstacles inside the trajectory, which is running
-            // and does not collide with ego in a certain time.
-            RCLCPP_INFO_EXPRESSION(
-              get_logger(), true,
-              "Ignore inside obstacles since it will not collide with the ego.");
-            continue;
+        const double time_to_obstacle_getting_out = [&]() {
+          const auto obstacle_getting_out_idx = polygon_utils::getFirstNonCollisionIndex(
+            decimated_traj_polygons, predicted_path_with_highest_confidence, obstacle.shape,
+            first_within_idx.get(), obstacle_filtering_param_.detection_area_expand_width);
+          if (!obstacle_getting_out_idx) {
+            return std::numeric_limits<double>::max();
           }
+
+          const double dist_to_obstacle_getting_out = tier4_autoware_utils::calcSignedArcLength(
+            decimated_traj.points, obstacle.pose.position, obstacle_getting_out_idx.get());
+
+          return dist_to_obstacle_getting_out / obstacle.velocity;
+        }();
+
+        if (
+          time_to_collision >
+          time_to_obstacle_getting_out + obstacle_filtering_param_.margin_for_collision_time) {
+          // False Condition 1. Ignore vehicle obstacles inside the trajectory, which is running
+          // and does not collide with ego in a certain time.
+          RCLCPP_INFO_EXPRESSION(
+            get_logger(), true, "Ignore inside obstacles since it will not collide with the ego.");
+          continue;
+        }
       }
     } else {  // obstacles outside the trajectory
       const double max_dist =

@@ -85,16 +85,17 @@ private:
 
   void smoothedTrajectoryCallback(const Trajectory::SharedPtr msg);
 
-  // void onExternalVelocityLimit(const VelocityLimit::ConstSharedPtr msg);
-
   // Member Functions
   std::vector<TargetObstacle> filterObstacles(
     const std::vector<TargetObstacle> & obstacles, const Trajectory & traj,
     const geometry_msgs::msg::Pose & current_pose, const double current_vel);
 
-  Trajectory generateRuleBaseTrajectory(const ObstacleVelocityPlannerData & planner_data);
+  Trajectory planTrajectory(
+    const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit);
 
   double calcCurrentAccel() const;
+
+  void publishVelocityLimit(const boost::optional<VelocityLimit> & vel_limit);
 
   std::shared_ptr<LowpassFilter1d> lpf_acc_{nullptr};
 
@@ -105,8 +106,6 @@ private:
   rclcpp::Subscription<PredictedObjects>::SharedPtr objects_sub_;
   rclcpp::Subscription<Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<HADMapBin>::SharedPtr sub_map_;
-  // rclcpp::Subscription<VelocityLimit>::SharedPtr
-  //   sub_external_velocity_limit_;  //!< @brief subscriber for external velocity limit
 
   // Publisher
   rclcpp::Publisher<Trajectory>::SharedPtr trajectory_pub_;

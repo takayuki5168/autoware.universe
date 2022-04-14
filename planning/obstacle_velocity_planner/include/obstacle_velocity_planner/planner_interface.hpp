@@ -48,6 +48,7 @@ public:
 
   PlannerInterface() = default;
 
+  /*
   // two kinds of velocity planning is supported.
   // 1. getZeroVelocityIndexWithVelocityLimit
   //   returns zero velocity index and velocity limit
@@ -59,12 +60,11 @@ public:
   {
     return {};
   };
+  */
 
   virtual Trajectory generateTrajectory(
-    [[maybe_unused]] const ObstacleVelocityPlannerData & planner_data)
-  {
-    return Trajectory{};
-  }
+    const ObstacleVelocityPlannerData & planner_data,
+    boost::optional<VelocityLimit> & vel_limit) = 0;
 
   void updateCommonParam(const std::vector<rclcpp::Parameter> & parameters)
   {
@@ -118,8 +118,7 @@ protected:
     //   std::pow(ego_vel + i.max_accel * i.idling_time, 2) * 0.5 / std::abs(i.min_accel) -
     //   std::pow(obj_vel, 2) * 0.5 / std::abs(i.min_object_accel) + margin;
     const double rss_dist_with_margin =
-      ego_vel * i.idling_time +
-      std::pow(ego_vel, 2) * 0.5 / std::abs(i.min_accel) -
+      ego_vel * i.idling_time + std::pow(ego_vel, 2) * 0.5 / std::abs(i.min_accel) -
       std::pow(obj_vel, 2) * 0.5 / std::abs(i.min_object_accel) + margin;
     return rss_dist_with_margin;
   }

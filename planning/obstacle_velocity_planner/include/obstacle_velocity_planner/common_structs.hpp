@@ -75,7 +75,6 @@ struct ObstacleVelocityPlannerData
   geometry_msgs::msg::Pose current_pose;
   double current_vel;
   double current_acc;
-  // double external_velocity_limit;
   std::vector<TargetObstacle> target_obstacles;
 };
 

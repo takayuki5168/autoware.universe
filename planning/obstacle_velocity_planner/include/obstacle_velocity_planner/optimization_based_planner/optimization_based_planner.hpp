@@ -48,7 +48,9 @@ public:
     rclcpp::Node & node, const LongitudinalInfo & longitudinal_info,
     const vehicle_info_util::VehicleInfo & vehicle_info);
 
-  Trajectory generateTrajectory(const ObstacleVelocityPlannerData & planner_data) override;
+  Trajectory generateTrajectory(
+    const ObstacleVelocityPlannerData & planner_data,
+    boost::optional<VelocityLimit> & vel_limit) override;
 
 private:
   struct TrajectoryData

@@ -142,7 +142,7 @@ OptimizationBasedPlanner::OptimizationBasedPlanner(
 }
 
 Trajectory OptimizationBasedPlanner::generateTrajectory(
-  const ObstacleVelocityPlannerData & planner_data)
+  const ObstacleVelocityPlannerData & planner_data, boost::optional<VelocityLimit> & vel_limit)
 {
   std::cerr << "v0: " << planner_data.current_vel << std::endl;
   // Create Time Vector defined by resampling time interval

@@ -39,7 +39,7 @@ public:
     rclcpp::Node & node, const LongitudinalInfo & longitudinal_info,
     const vehicle_info_util::VehicleInfo & vehicle_info);
 
-  boost::optional<size_t> getZeroVelocityIndexWithVelocityLimit(
+  Trajectory generateTrajectory(
     const ObstacleVelocityPlannerData & planner_data,
     boost::optional<VelocityLimit> & vel_limit) override;
 
@@ -48,8 +48,14 @@ public:
 private:
   struct SlowDownInfo
   {
-    SlowDownInfo(const double dist_to_slow_down_arg, const double normalized_dist_to_slow_down_arg, const TargetObstacle & obstacle_arg)
-      : dist_to_slow_down(dist_to_slow_down_arg), normalized_dist_to_slow_down(normalized_dist_to_slow_down_arg), obstacle(obstacle_arg) {}
+    SlowDownInfo(
+      const double dist_to_slow_down_arg, const double normalized_dist_to_slow_down_arg,
+      const TargetObstacle & obstacle_arg)
+    : dist_to_slow_down(dist_to_slow_down_arg),
+      normalized_dist_to_slow_down(normalized_dist_to_slow_down_arg),
+      obstacle(obstacle_arg)
+    {
+    }
     double dist_to_slow_down;
     double normalized_dist_to_slow_down;
     TargetObstacle obstacle;
@@ -78,8 +84,7 @@ private:
 
   size_t doStop(const ObstacleVelocityPlannerData & planner_data, const double dist_to_stop) const;
   VelocityLimit doSlowDown(
-    const ObstacleVelocityPlannerData & planner_data,
-    const SlowDownInfo & slow_down_info);
+    const ObstacleVelocityPlannerData & planner_data, const SlowDownInfo & slow_down_info);
 
   DebugValues debug_values_;
 };
