@@ -29,24 +29,26 @@ double AdaptiveCruiseController::getMedianVel(const std::vector<nav_msgs::msg::O
 
   return med_vel;
 }
-}
+}  // namespace
 
 class LidarBasedVelocityUpdater
 {
 public:
-  LidarBasedVelocityUpdater() {
+  LidarBasedVelocityUpdater()
+  {
     // Subscribers
     detected_object_sub_ = this->create_subscription<DetectedObjects>(
-                                                                      "~/input/detected_objects", 1,
-                                                                      std::bind(&ObstacleStopPlannerNode::onDetectedObjects, this, std::placeholders::_1),
-                                                                      createSubscriptionOptions(this));
+      "~/input/detected_objects", 1,
+      std::bind(&ObstacleStopPlannerNode::onDetectedObjects, this, std::placeholders::_1),
+      createSubscriptionOptions(this));
     obstacle_pointcloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-                                                                                        "~/input/pointcloud", rclcpp::SensorDataQoS(),
-                                                                                        std::bind(&ObstacleStopPlannerNode::onObstaclePointcloud, this, std::placeholders::_1),
-                                                                                        createSubscriptionOptions(this));
+      "~/input/pointcloud", rclcpp::SensorDataQoS(),
+      std::bind(&ObstacleStopPlannerNode::onObstaclePointcloud, this, std::placeholders::_1),
+      createSubscriptionOptions(this));
   }
 
-  void updateObjectVelocity() {
+  void updateObjectVelocity()
+  {
     if (!objects_ptr_ || !objects_ros_pointcloud_ptr_) {
       return;
     }
@@ -62,8 +64,12 @@ public:
 private:
   struct ObjectBottomLine
   {
-    ObjectBottomLine(const double x_arg, const double y_arg, const double theta_arg, const rclcpp::Time & ros_time_arg)
-      : x(x_arg), y(y_arg), theta(theta_arg), ros_time(ros_time_arg) {}
+    ObjectBottomLine(
+      const double x_arg, const double y_arg, const double theta_arg,
+      const rclcpp::Time & ros_time_arg)
+    : x(x_arg), y(y_arg), theta(theta_arg), ros_time(ros_time_arg)
+    {
+    }
 
     double x;
     double y;
@@ -86,9 +92,10 @@ private:
 
     pcl::VoxelGrid<pcl::PointXYZ> filter;
     pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr no_height_pointcloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr no_height_pointcloud_ptr(
+      new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr no_height_filtered_pointcloud_ptr(
-                                                                          new pcl::PointCloud<pcl::PointXYZ>);
+      new pcl::PointCloud<pcl::PointXYZ>);
 
     pcl::fromROSMsg(*input_msg, *pointcloud_ptr);
 
@@ -145,7 +152,8 @@ private:
     nearest_collision_p_ros.z = nearest_collision_point.z;
 
     /* estimate velocity */
-    const double delta_time = nearest_collision_point_time.seconds() - prev_collision_point_time_.seconds();
+    const double delta_time =
+      nearest_collision_point_time.seconds() - prev_collision_point_time_.seconds();
 
     // if get same pointcloud with previous step,
     // skip estimate process

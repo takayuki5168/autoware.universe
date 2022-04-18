@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef OBSTACLE_STOP_PLANNER__DEBUG_MARKER_HPP_
-#define OBSTACLE_STOP_PLANNER__DEBUG_MARKER_HPP_
+#ifndef LIDAR_BASED_VELOCITY_UPDATER__DEBUG_MARKER_HPP_
+#define LIDAR_BASED_VELOCITY_UPDATER__DEBUG_MARKER_HPP_
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -130,4 +130,4 @@ private:
 
 }  // namespace motion_planning
 
-#endif  // OBSTACLE_STOP_PLANNER__DEBUG_MARKER_HPP_
+#endif  // LIDAR_BASED_VELOCITY_UPDATER__DEBUG_MARKER_HPP_

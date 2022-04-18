@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef OBSTACLE_STOP_PLANNER__NODE_HPP_
-#define OBSTACLE_STOP_PLANNER__NODE_HPP_
+#ifndef LIDAR_BASED_VELOCITY_UPDATER__NODE_HPP_
+#define LIDAR_BASED_VELOCITY_UPDATER__NODE_HPP_
 
 #include "obstacle_stop_planner/adaptive_cruise_control.hpp"
 #include "obstacle_stop_planner/debug_marker.hpp"
@@ -301,4 +301,4 @@ private:
 };
 }  // namespace motion_planning
 
-#endif  // OBSTACLE_STOP_PLANNER__NODE_HPP_
+#endif  // LIDAR_BASED_VELOCITY_UPDATER__NODE_HPP_
